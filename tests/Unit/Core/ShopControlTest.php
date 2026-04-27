@@ -19,29 +19,25 @@
  * @license    https://www.gnu.org/licenses/gpl-3.0  GNU General Public License 3 (GPLv3)
  */
 
-// NOTE: the die() calls below cannot use the ExitHandler abstraction — they fire
-// before bootstrap.php is included (bootstrap is loaded transitively via
-// require 'index.php' at the bottom of this file). Registry is not populated at
-// this point. See tasks/2026-04-21-exit-handler.md for context.
-// mod_rewrite check
-if (isset($_REQUEST['mod_rewrite_module_is'])) {
-    $sMode = $_REQUEST['mod_rewrite_module_is'];
-    if ($sMode == 'on') {
-        die('mod_rewrite_on');
-    } else {
-        die('mod_rewrite_off');
+namespace OxidEsales\EshopCommunity\Tests\Unit\Core;
+
+class ShopControlTest extends \OxidTestCase
+{
+    use \OxidEsales\EshopCommunity\Tests\Unit\ExitHandlerTestTrait;
+
+    public function testHandleAccessDeniedExceptionRoutesThroughExitHandler()
+    {
+        $this->installFakeExitHandler();
+
+        $control = $this->getProxyClass(\OxidEsales\Eshop\Core\ShopControl::class);
+        $exception = new \OxidEsales\Eshop\Core\Exception\AccessDeniedException('nope');
+
+        try {
+            $control->handleAccessDeniedException($exception);
+            $this->fail('Expected ExitCalledException');
+        } catch (\OxidEsales\Eshop\Core\Exception\ExitCalledException $e) {
+            $this->assertSame('nope', $e->getExitMessage());
+            $this->assertSame(0, $e->getCode());
+        }
     }
 }
-
-/**
- * Detects serchengine URLs
- *
- * @return bool true
- */
-function isSearchEngineUrl()
-{
-    return true;
-}
-
-// executing regular routines ...
-require 'index.php';

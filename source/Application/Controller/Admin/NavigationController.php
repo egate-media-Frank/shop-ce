@@ -30,6 +30,8 @@ use OxidEsales\Eshop\Core\Registry;
 use OxidEsales\Eshop\Core\ShopVersion;
 use OxidEsales\EshopCommunity\Core\AdminNaviRights;
 use OxidEsales\EshopCommunity\Core\AdminViewSetting;
+use OxidEsales\EshopCommunity\Internal\Container\ContainerFactory;
+use OxidEsales\EshopCommunity\Internal\Framework\UpdateCheck\UpdateCheckServiceInterface;
 
 /**
  * Administrator GUI navigation manager class.
@@ -166,11 +168,11 @@ class NavigationController extends AdminController
             $messages['message'] .= Registry::getLang()->translateString('NAVIGATION_SYSREQ_MESSAGE2') . '</a>';
         }
 
-        // version check
-        if (Registry::getConfig()->getConfigParam('blCheckForUpdates')) {
-            if ($sVersionNotice = $this->checkVersion()) {
-                $messages['message'] .= $sVersionNotice;
-            }
+        // version check via UpdateCheckService
+        $forceUpdateCheck = (bool) Registry::getRequest()->getRequestEscapedParameter('forceUpdateCheck');
+        if ($forceUpdateCheck || Registry::getConfig()->getConfigParam('blCheckForUpdates')) {
+            $updateCheckResult = $this->getUpdateCheckService()->check($forceUpdateCheck);
+            $this->_aViewData['updateCheckResult'] = $updateCheckResult;
         }
 
         // check if setup dir is deleted
@@ -220,31 +222,15 @@ class NavigationController extends AdminController
      */
     protected function _checkVersion() // phpcs:ignore PSR2.Methods.MethodDeclaration.Underscore
     {
-        $json = file_get_contents('https://api.github.com/repos/o3-shop/o3-shop/releases/latest', false, stream_context_create([
-            'http' => [
-                'header' => [
-                    'User-Agent: PHP', // GitHub requires a User-Agent header
-                    'Accept: application/vnd.github+json',
-                    'X-GitHub-Api-Version: 2022-11-28',
-                ],
-            ],
-        ]));
+        $result = $this->getUpdateCheckService()->check();
 
-        $data = json_decode($json, true);
-
-        $latestVersion = $data['name'] ?? null;
-
-        Registry::getLogger()->debug('Latest Release name: ' . $latestVersion);
-
-        if ($latestVersion) {
+        if ($result->isCoreUpdateAvailable()) {
             $currentVersion = oxNew(ShopVersion::class)->getVersion();
-            if (version_compare($currentVersion, $latestVersion, '<')) {
-                return sprintf(
-                    Registry::getLang()->translateString('NAVIGATION_NEW_VERSION_AVAILABLE'),
-                    $currentVersion,
-                    $latestVersion
-                );
-            }
+            return sprintf(
+                Registry::getLang()->translateString('NAVIGATION_NEW_VERSION_AVAILABLE'),
+                $currentVersion,
+                $result->getLatestCoreVersion()
+            );
         }
     }
 
@@ -261,6 +247,16 @@ class NavigationController extends AdminController
     protected function checkVersion()
     {
         return $this->_checkVersion();
+    }
+
+    /**
+     * @return UpdateCheckServiceInterface
+     */
+    protected function getUpdateCheckService(): UpdateCheckServiceInterface
+    {
+        return ContainerFactory::getInstance()
+            ->getContainer()
+            ->get(UpdateCheckServiceInterface::class);
     }
 
     public function canHaveRestrictedView()

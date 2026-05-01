@@ -1,2 +1,7 @@
+# AI / dev-tooling configuration that has no place in the composer dist.
 AGENTS.md export-ignore
+CLAUDE.md export-ignore
+.claude/** export-ignore
+openspec/** export-ignore
+docs/superpowers/** export-ignore
 tests/Acceptance/playwright/** export-ignore

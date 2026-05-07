@@ -31,6 +31,6 @@ class ShopVersion
      */
     public static function getVersion()
     {
-        return 'v1.6.0-RC4';
+        return 'v1.6.0';
     }
 }

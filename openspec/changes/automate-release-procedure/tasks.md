@@ -116,7 +116,7 @@ New components:
   DefaultBranchResolver per-package release-branch map (matches Section 1.5 decisions)
   GitLsRemoteRepoIntrospector  reference RemoteRepoIntrospector via `git ls-remote --tags --heads`
 
-ReleaseCommand now accepts an optional `(planner, printer)` constructor pair; production-mode invocations build the default planner inline with `Https*Fetcher`s + `GitLsRemoteRepoIntrospector` + `GhCliReleaseNotesProvider`. Tests inject stubs that bypass the parent constructor entirely so no real services are constructed. Live execution still prints a "Section 14 wiring pending" notice (4 exit codes: OK / USAGE_ERROR / PRE_FLIGHT_ABORT / PLAN_ERROR).
+ReleaseCommand now accepts an optional `(planner, printer, liveExecutor)` constructor triple; production-mode invocations build the default planner inline with `Https*Fetcher`s + `GitLsRemoteRepoIntrospector` + `GhCliReleaseNotesProvider`, and the default `LiveExecutor` with `SymfonyProcessExecutor` + `PerRepoActions` + `ComposerJsonConstraintWriter`. Tests inject stubs that bypass the parent constructor entirely so no real services are constructed. Exit codes: OK / USAGE_ERROR / PRE_FLIGHT_ABORT / PLAN_ERROR. (Live-mode wiring landed in §15.)
 
 Refactor: `VersionResolution` gained an optional `latestTag` field so the planner can pass it to `TagCutter` for case-3 candidates. All 14 Section 6 tests still pass.
 
@@ -156,29 +156,49 @@ No `bin/release` code changes — the merge-back machinery already targets `main
     - PR required to merge (`required_approving_review_count: 0` — no approver requirement, but no direct pushes either)
     - No force-pushes (`allow_force_pushes: false`)
     - No branch deletion (`allow_deletions: false`)
-    Linear-history rule intentionally NOT enforced (would conflict with §15.4's "merge commit, not squash" guidance for merge-back PRs). `enforce_admins: false` so the maintainer can land emergency direct pushes if needed.
-- [x] 14.5 Verify uniformly: confirmed across all 17 repos that (a) `default_branch == "main"`, (b) protection state matches the §14.4 invariants, (c) the merge-back gate's underlying call (`gh pr list --base main --head <release-branch> --state open`) returns clean JSON on every repo (no `--base main`-not-found errors). End-to-end final-release dry-run verification deferred to §15.1's first machine-driven cut, which exercises the full pre-flight gate stack against live origin.
-- [x] 14.6 §14 audit gap discovered during §15.1 dry-run: the original §14.1 audit picked the 9 repos that visibly lacked `main` from a manual list, but the actual release graph (derived from the dep walk in §15.1) contains 22 release-eligible repos — 5 more than the §14 list: `smarty`, `shop-doctrine-migration-wrapper`, `shop-db-views-generator`, `shop-demodata-installer`, `php-selenium`. RC1 wasn't blocked (RC1 cuts no merge-back PRs and `gh pr list --base main` returns empty when main is missing) but v1.6.1 final's merge-back PR creation would have failed. Extension fix landed in this PR: 4 of the 5 (`smarty`, `shop-doctrine-migration-wrapper`, `shop-demodata-installer`, `php-selenium`) had `main` bootstrapped at HEAD of the actual release branch (support/2.6, b-1.6, b-1.6, b-1.0 respectively); 2 of those 4 also had stale defaults at `b-7.0.x` that got flipped to `main`; the 5th (`shop-db-views-generator`) already had main as default and just got §14.4 protection. All 22 release-eligible repos now uniform: `default_branch == "main"`, PR-required (0 approvers), no force-push, no delete. **Lesson:** future audits should start from the dep walk, not a manual repo list.
+    Linear-history rule intentionally NOT enforced (would conflict with the wiki's "merge commit, not squash" guidance for merge-back PRs in [Create-a-Release](https://github.com/o3-shop/o3-shop/wiki/Create-a-Release)). `enforce_admins: false` so the maintainer can land emergency direct pushes if needed.
+- [x] 14.5 Verify uniformly: confirmed across all 17 repos that (a) `default_branch == "main"`, (b) protection state matches the §14.4 invariants, (c) the merge-back gate's underlying call (`gh pr list --base main --head <release-branch> --state open`) returns clean JSON on every repo (no `--base main`-not-found errors). End-to-end final-release dry-run verification deferred to §16.3's first machine-driven cut, which exercises the full pre-flight gate stack against live origin.
+- [x] 14.6 §14 audit gap discovered during §16.1 dry-run: the original §14.1 audit picked the 9 repos that visibly lacked `main` from a manual list, but the actual release graph (derived from the dep walk in §16.1) contains 22 release-eligible repos — 5 more than the §14 list: `smarty`, `shop-doctrine-migration-wrapper`, `shop-db-views-generator`, `shop-demodata-installer`, `php-selenium`. RC1 wasn't blocked (RC1 cuts no merge-back PRs and `gh pr list --base main` returns empty when main is missing) but v1.6.1 final's merge-back PR creation would have failed. Extension fix landed in this PR: 4 of the 5 (`smarty`, `shop-doctrine-migration-wrapper`, `shop-demodata-installer`, `php-selenium`) had `main` bootstrapped at HEAD of the actual release branch (support/2.6, b-1.6, b-1.6, b-1.0 respectively); 2 of those 4 also had stale defaults at `b-7.0.x` that got flipped to `main`; the 5th (`shop-db-views-generator`) already had main as default and just got §14.4 protection. All 22 release-eligible repos now uniform: `default_branch == "main"`, PR-required (0 approvers), no force-push, no delete. **Lesson:** future audits should start from the dep walk, not a manual repo list.
 
-## 15. First live release with bin/release
+## 15. Live-execution wiring in `ReleaseCommand`
 
-- [ ] 15.1 Run `bin/release --from v1.6.0 --to v1.6.1-RC1 --dry-run` and review the plan (Step 1 must use the pre-fold-in metapackage indirection)
-- [ ] 15.2 Resolve any issues uncovered by the dry-run (missing release branches, malformed `.next-bump` files, etc.)
-- [ ] 15.3 Run `bin/release --from v1.6.0 --to v1.6.1-RC1` for real — this is the first machine-driven release and ships this entire change
-- [ ] 15.4 Manually publish the draft GitHub releases per repo and the aggregated o3-shop draft
-- [ ] 15.5 No merge-back PRs are auto-opened (RC1 is pre-release); merge-back PRs land with the eventual v1.6.1 final cut
-- [ ] 15.6 Run Section 16 verification on the produced v1.6.1-RC1 artifact
-- [ ] 15.7 Capture lessons learned in `.claude/memory/` (per the repo's finish protocol)
+The dry-run path is fully implemented (§11). The live path in `ReleaseCommand::execute()` currently prints a "Section 15 wiring pending" notice and exits `EXIT_OK` — running `bin/release --from v1.6.0 --to v1.6.1-RC1` (no `--dry-run`) does not actually cut anything yet. This section closes that gap.
 
-## 16. Verification of the v1.6.1-RC1 cut
+The required components already exist and are unit-tested in isolation:
+- §10 gates (`WorkingTreeGate`, `BranchGate`, `ComposerInstallGate`, `TestSuiteGate`, `IncomingPrGate`, `MergeBackPrGate`) and `PerRepoActions`
+- `ReleasePlanner` already accepts an optional `PreFlightRunner` and a `repoPaths` map
+- `MergeBackPolicy::shouldOpenForShopTo()` predicate
 
-> Note: v1.6.0 shipped pre-fold-in (with the old hardcoded `ShopVersion.php`). There is no separate manual v1.6.1 release — `bin/release` cuts v1.6.1-RC1 directly from `--from v1.6.0` (Section 15) using the pre-fold-in metapackage indirection in Step 1. These tasks verify the result of that run and run after Section 15.
+The work is purely orchestration in the CLI layer.
 
-- [ ] 16.1 Verify a fresh `composer install` of `o3-shop v1.6.1-RC1` produces a working shop with `ShopVersion::getVersion() === "v1.6.1-RC1"` (folds in former §12.2 — composer-install integration check against the post-fold-in `o3-shop/composer.json`)
-- [ ] 16.2 Smoke-test the admin UI: confirm the version display shows `v1.6.1-RC1`
-- [ ] 16.3 Verify `o3-shop/composer.json` at `v1.6.1-RC1` is post-fold-in (no `o3-shop/shop-metapackage-ce` in `require`, `replace: oxid-esales/oxideshop-metapackage-ce` present)
-- [ ] 16.4 Verify the v1.6.1-RC1 dist archive does not contain `.next-bump` (archive.exclude works end-to-end) (folds in former §12.3 — `.next-bump` archive-exclude check, exercised end-to-end against the real cut)
+- [x] 15.1 Add a CLI flag for local repo paths — `--repo-path <package>=/abs/path` (repeatable). Validates that each path exists and is a Git working tree (`.git/` present); rejects relative paths and missing `vendor/repo` slugs.
+- [x] 15.2 Default-planner factory builds a `PreFlightRunner` with all 6 gates (`WorkingTreeGate`, `BranchGate`, `ComposerInstallGate`, `TestSuiteGate` with a no-op resolver, `IncomingPrGate`, `MergeBackPrGate`) when any `--repo-path` is supplied. New `LiveExecutor` orchestrator wires `PerRepoActions` (with `SymfonyProcessExecutor`) and a new `ComposerJsonConstraintWriter` (regex-based, formatting-preserving) plus `DefaultBranchResolver`.
+- [x] 15.3 Parsed repo paths are threaded through `ReleasePlanner::plan($from, $to, $bumpFlags, $repoPaths)`; pre-flight reports populate `ReleasePlan::preFlightReports()`.
+- [x] 15.4 Live-mode entry path checks `ReleasePlan::shouldAbort()` after planning; on abort the printer renders the combined gate diagnostic, the command prints a one-liner, and exits `EXIT_PRE_FLIGHT_ABORT (3)` before instantiating the executor.
+- [x] 15.5 `LiveExecutor::execute()` walks candidates in topological order (leaves-first, per `ReleasePlan::candidates()`) and for each that needs a new tag invokes commit/push, tag/push, and draft-release (`--generate-notes`). After all candidates the orchestrator then processes `o3-shop/o3-shop` itself (never a candidate, always tagged with `--to`, draft body = aggregated §9 markdown via `--notes`). After every tag is cut, merge-back PRs are opened iff `MergeBackPolicy::shouldOpenForShopTo($toTag)` returns true. Constraint edits applied to local `composer.json` files via `ComposerJsonConstraintWriter` before each commit. `.next-bump` deletion driven by `TagCutResult::deleteNextBumpFile()`.
+- [x] 15.6 Progress mirrors the dry-run callable style (`<comment>...</comment>` per major step). After each candidate, the released-URL is captured into `LiveExecutor::releaseUrls()`. On success or failure, `ReleaseCommand::execute()` calls `printPartialState()` to dump the captured URLs (`Draft GitHub releases created:` + `Merge-back PRs opened:`) so a partial-failure state is recoverable from the log.
+- [x] 15.7 Unit tests added: `ComposerJsonConstraintWriterTest` (replace exact pin / multiple edits / missing pattern / format preservation / missing file), `LiveExecutorTest` (candidate-then-orchestrator order, `--notes` vs `--generate-notes` per repo, RC `--to` skips merge-back, final `--to` opens merge-back for candidates + orchestrator, missing repo path throws, `.next-bump` deletion fires when `TagCutResult` says so), and updated `ReleaseCommandTest` (live mode without `--repo-path` returns USAGE_ERROR; malformed `--repo-path` returns USAGE_ERROR; live mode with valid path invokes executor and exits OK; pre-flight abort short-circuits before executor; executor failure surfaces as PLAN_ERROR with partial state).
+- [x] 15.8 Removed the "Section 15 wiring pending" notice from `ReleaseCommand::execute()`. Doc-comment updated to reflect that §15 wiring landed.
 
-## 17. Post-v1.6.1-final cleanup
+## 16. First live release with bin/release
 
-- [ ] 17.1 (After v1.6.1 final stabilizes — not blocking the v1.6.1-RC1 cut.) Archive the `shop-metapackage-ce` GitHub repo and update its README to point at `o3-shop/o3-shop`. Its v1.6.0 tag already pins the final pre-archival state; no new tag is needed.
+- [x] 16.1 Run `bin/release --from v1.6.0 --to v1.6.1-RC1 --dry-run` and review the plan (Step 1 must use the pre-fold-in metapackage indirection) — done; pre-fold-in indirection fired correctly, 21 candidates resolved, plan structurally clean. Two known constraint jumps acknowledged (gdpr-optin v1.0.1→v2.3.5 and usercentrics v1.0.0→v1.2.2). Two phantom release-notes items (shop-ce#99, shop-facts#2) will resolve when v1.6.1-RC1 is an actual tag.
+- [ ] 16.2 Resolve any issues uncovered by the dry-run (missing release branches, malformed `.next-bump` files, etc.)
+- [ ] 16.3 Run `bin/release --from v1.6.0 --to v1.6.1-RC1` for real — depends on §15 (live wiring). This is the first machine-driven release and ships this entire change.
+- [ ] 16.4 Manually publish the draft GitHub releases per repo and the aggregated o3-shop draft
+- [ ] 16.5 No merge-back PRs are auto-opened (RC1 is pre-release); merge-back PRs land with the eventual v1.6.1 final cut
+- [ ] 16.6 Run Section 17 verification on the produced v1.6.1-RC1 artifact
+- [ ] 16.7 Capture lessons learned in `.claude/memory/` (per the repo's finish protocol)
+
+## 17. Verification of the v1.6.1-RC1 cut
+
+> Note: v1.6.0 shipped pre-fold-in (with the old hardcoded `ShopVersion.php`). There is no separate manual v1.6.1 release — `bin/release` cuts v1.6.1-RC1 directly from `--from v1.6.0` (Section 16) using the pre-fold-in metapackage indirection in Step 1. These tasks verify the result of that run and run after Section 16.
+
+- [ ] 17.1 Verify a fresh `composer install` of `o3-shop v1.6.1-RC1` produces a working shop with `ShopVersion::getVersion() === "v1.6.1-RC1"` (folds in former §12.2 — composer-install integration check against the post-fold-in `o3-shop/composer.json`)
+- [ ] 17.2 Smoke-test the admin UI: confirm the version display shows `v1.6.1-RC1`
+- [ ] 17.3 Verify `o3-shop/composer.json` at `v1.6.1-RC1` is post-fold-in (no `o3-shop/shop-metapackage-ce` in `require`, `replace: oxid-esales/oxideshop-metapackage-ce` present)
+- [ ] 17.4 Verify the v1.6.1-RC1 dist archive does not contain `.next-bump` (archive.exclude works end-to-end) (folds in former §12.3 — `.next-bump` archive-exclude check, exercised end-to-end against the real cut)
+
+## 18. Post-v1.6.1-final cleanup
+
+- [ ] 18.1 (After v1.6.1 final stabilizes — not blocking the v1.6.1-RC1 cut.) Archive the `shop-metapackage-ce` GitHub repo and update its README to point at `o3-shop/o3-shop`. Its v1.6.0 tag already pins the final pre-archival state; no new tag is needed.

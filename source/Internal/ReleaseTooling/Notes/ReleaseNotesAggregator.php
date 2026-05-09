@@ -22,6 +22,8 @@ declare(strict_types=1);
 
 namespace OxidEsales\EshopCommunity\Internal\ReleaseTooling\Notes;
 
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Composer\TagFromConstraint;
+
 /**
  * Algorithm Step 6: stitch a single cross-repo markdown body
  * out of per-repo `generate-notes` outputs plus a summary of repos
@@ -54,9 +56,17 @@ class ReleaseNotesAggregator
 
     private ReleaseNotesProvider $provider;
 
-    public function __construct(ReleaseNotesProvider $provider)
+    /** @var callable(string):void */
+    private $progress;
+
+    /**
+     * @param callable(string):void|null $progress invoked once per per-repo notes fetch
+     */
+    public function __construct(ReleaseNotesProvider $provider, ?callable $progress = null)
     {
         $this->provider = $provider;
+        $this->progress = $progress ?? static function (string $message): void {
+        };
     }
 
     /**
@@ -77,9 +87,23 @@ class ReleaseNotesAggregator
         $sections = [];
 
         foreach ($changed as $state) {
+            // Normalize from_pin to a tag name before passing to the
+            // provider. GitHub's generate-notes API rejects caret/tilde
+            // constraints (`^v1.0.0`) with HTTP 400; we normalize to
+            // the canonical o3-shop tag form (`v1.0.0`) so the call
+            // works for the common pre-fold-in case where from_pin
+            // carries constraint strings instead of exact tags.
+            $previousTag = TagFromConstraint::resolve($state->fromPin())
+                ?? $state->fromPin();
+            ($this->progress)(sprintf(
+                '  generating release notes for %s (%s..%s)',
+                $state->package(),
+                $previousTag,
+                $state->chosenVersion()
+            ));
             $body = $this->provider->notesFor(
                 $state->package(),
-                $state->fromPin(),
+                $previousTag,
                 $state->chosenVersion()
             );
             $sections[] = sprintf("## %s\n\n%s", $state->package(), trim($body));

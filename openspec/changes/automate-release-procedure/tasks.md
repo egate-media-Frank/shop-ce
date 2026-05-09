@@ -124,37 +124,60 @@ Tests: 4 planner cases / 19 assertions covering pre-fold-in indirection end-to-e
 
 ## 12. Integration tests
 
-- [ ] 12.1 End-to-end test: run `bin/release --from <fixture-from> --to <fixture-to> --dry-run` against a fixture repo network and assert the printed plan
-- [ ] 12.2 Composer-install integration test: resolve `composer install` against the post-fold-in `o3-shop/composer.json` and confirm a working shop
-- [ ] 12.3 Archive-exclude test: build a dist archive for shop-ce on a branch with a committed `.next-bump`; assert the archive does not contain `.next-bump`
+- [x] 12.1 End-to-end test: run `bin/release --from <fixture-from> --to <fixture-to> --dry-run` against a fixture repo network and assert the printed plan — covered two ways: (a) `ReleasePlannerTest` runs the full algorithm chain against in-memory fake fetchers (the fixture-network equivalent) and asserts plan structure; (b) live verification against origin via `bin/release --from v1.6.0 --to v1.6.1-RC1 --dry-run` — surfaced and fixed 4 real-world bugs (constraint-update wrap, from_pin shallow recursion, metapackage-precedence ordering, gh-cli case-rename), all with regression tests. Full ReleaseTooling suite: 198 tests / 433 assertions.
 
 ## 13. Wiki rewrite
 
-- [ ] 13.1 Replace https://github.com/o3-shop/o3-shop/wiki/Create-a-Release with the `bin/release` workflow (one command per release, draft publish click)
-- [ ] 13.2 Document the 3-tier graph (no metapackage tier)
-- [ ] 13.3 Document `.next-bump` file convention and `--bump` flag for non-patch bumps
-- [ ] 13.4 Keep a manual fallback section for the case where `bin/release` is unavailable
-- [ ] 13.5 Note that currency-rate freshness remains a separate manual maintainer check
+- [x] 13.1 Replace https://github.com/o3-shop/o3-shop/wiki/Create-a-Release with the `bin/release` workflow (one command per release, draft publish click) — landed in wiki commit `ba5669e`
+- [x] 13.2 Document the 3-tier graph (no metapackage tier) — "The release graph" section covers tiers 0/1/2 and the post-fold-in metapackage absence
+- [x] 13.3 Document `.next-bump` file convention and `--bump` flag for non-patch bumps — "Bump levels for new tags" section covers precedence, file consumption, and `archive.exclude` belt-and-suspenders
+- [x] 13.4 Keep a manual fallback section for the case where `bin/release` is unavailable — "Manual fallback" appendix retains the per-repo recipe, post-fold-in (no metapackage step)
+- [x] 13.5 Note that currency-rate freshness remains a separate manual maintainer check — "Pre-release housekeeping → Refresh currency exchange rates" section calls this out explicitly as not automated by `bin/release`
 
-## 14. First live release with bin/release
+## 14. Branch-model normalization (before any machine-driven release)
 
-- [ ] 14.1 Run `bin/release --from v1.6.0 --to v1.6.1-RC1 --dry-run` and review the plan (Step 1 must use the pre-fold-in metapackage indirection)
-- [ ] 14.2 Resolve any issues uncovered by the dry-run (missing release branches, malformed `.next-bump` files, etc.)
-- [ ] 14.3 Run `bin/release --from v1.6.0 --to v1.6.1-RC1` for real — this is the first machine-driven release and ships this entire change
-- [ ] 14.4 Manually publish the draft GitHub releases per repo and the aggregated o3-shop draft
-- [ ] 14.5 No merge-back PRs are auto-opened (RC1 is pre-release); merge-back PRs land with the eventual v1.6.1 final cut
-- [ ] 14.6 Run Section 15 verification on the produced v1.6.1-RC1 artifact
-- [ ] 14.7 Capture lessons learned in `.claude/memory/` (per the repo's finish protocol)
+Every release-eligible repo gets a `main` branch as its long-lived "latest released code" line. Eliminates the per-repo special case in `bin/release`'s merge-back-PR flow — `MergeBackPrGate` and `PerRepoActions::openMergeBackPr` both target `main` already; this makes that uniformly correct across the network. Lands **before §15** so every machine-driven release (RC1 onward) runs against a uniform branch model. Possible stepping stone toward trunk-based development later, but does not commit to it.
 
-## 15. Verification of the v1.6.1-RC1 cut
+No `bin/release` code changes — the merge-back machinery already targets `main`; this section only normalizes the org-side branch model so that targeting becomes universally valid.
 
-> Note: v1.6.0 shipped pre-fold-in (with the old hardcoded `ShopVersion.php`). There is no separate manual v1.6.1 release — `bin/release` cuts v1.6.1-RC1 directly from `--from v1.6.0` (Section 14) using the pre-fold-in metapackage indirection in Step 1. These tasks verify the result of that run and run after Section 14.
+- [x] 14.1 Per-repo audit: identify the canonical released line for every repo currently without `main`. Confirmed mapping:
+    - `testing-library` → `b-1.6`
+    - `gdpr-optin-module` → `b-1.0`
+    - `usercentrics` → `b-1.0`
+    - `shop-ide-helper` → `b-1.6`
+    - `shop-unified-namespace-generator` → `b-1.6`
+    - `developer-tools` → `b-7.0.x` (only line)
+    - `codeception-modules` → `b-1.0`
+    - `codeception-page-objects` → `b-6.5.x`
+    - `MinkSeleniumDriver` → `b-7.0.x`
+- [x] 14.2 Create `main` on each of the 9 repos above, pointing at the HEAD of the chosen line (branch-HEAD policy chosen over tag-pinned because all 9 had latest tag = HEAD modulo the recently-merged §1.5 archive.exclude commit; aligns the 9 with "code about to be released")
+- [x] 14.3 Set `main` as the GitHub default branch — all 17 release-eligible repos. Verification surfaced 3 stragglers that had `main` but a non-main default (`shop-ce` default=b-1.5, `shop-facts` default=b-1.0, `o3-shop` default=b-1.0-ce): `shop-ce`'s main was already at v1.6.0 + merge-back so default flip was sufficient; `shop-facts`'s main was 6 commits behind v1.0.4 (PR #2 fast-forwarded it to v1.0.4 commit, then default flipped); `o3-shop`'s main was 55 behind v1.6.0 with 1 commit divergence (PR #147 brought main to v1.6.0 via merge commit, then default flipped). Both temp branches deleted post-merge.
+- [x] 14.4 Apply branch protection to `main` on **every** release-eligible repo (all 17). Minimum invariants applied uniformly:
+    - PR required to merge (`required_approving_review_count: 0` — no approver requirement, but no direct pushes either)
+    - No force-pushes (`allow_force_pushes: false`)
+    - No branch deletion (`allow_deletions: false`)
+    Linear-history rule intentionally NOT enforced (would conflict with §15.4's "merge commit, not squash" guidance for merge-back PRs). `enforce_admins: false` so the maintainer can land emergency direct pushes if needed.
+- [x] 14.5 Verify uniformly: confirmed across all 17 repos that (a) `default_branch == "main"`, (b) protection state matches the §14.4 invariants, (c) the merge-back gate's underlying call (`gh pr list --base main --head <release-branch> --state open`) returns clean JSON on every repo (no `--base main`-not-found errors). End-to-end final-release dry-run verification deferred to §15.1's first machine-driven cut, which exercises the full pre-flight gate stack against live origin.
 
-- [ ] 15.1 Verify a fresh `composer install` of `o3-shop v1.6.1-RC1` produces a working shop with `ShopVersion::getVersion() === "v1.6.1-RC1"`
-- [ ] 15.2 Smoke-test the admin UI: confirm the version display shows `v1.6.1-RC1`
-- [ ] 15.3 Verify `o3-shop/composer.json` at `v1.6.1-RC1` is post-fold-in (no `o3-shop/shop-metapackage-ce` in `require`, `replace: oxid-esales/oxideshop-metapackage-ce` present)
-- [ ] 15.4 Verify the v1.6.1-RC1 dist archive does not contain `.next-bump` (archive.exclude works end-to-end)
+## 15. First live release with bin/release
 
-## 16. Post-v1.6.1-final cleanup
+- [ ] 15.1 Run `bin/release --from v1.6.0 --to v1.6.1-RC1 --dry-run` and review the plan (Step 1 must use the pre-fold-in metapackage indirection)
+- [ ] 15.2 Resolve any issues uncovered by the dry-run (missing release branches, malformed `.next-bump` files, etc.)
+- [ ] 15.3 Run `bin/release --from v1.6.0 --to v1.6.1-RC1` for real — this is the first machine-driven release and ships this entire change
+- [ ] 15.4 Manually publish the draft GitHub releases per repo and the aggregated o3-shop draft
+- [ ] 15.5 No merge-back PRs are auto-opened (RC1 is pre-release); merge-back PRs land with the eventual v1.6.1 final cut
+- [ ] 15.6 Run Section 16 verification on the produced v1.6.1-RC1 artifact
+- [ ] 15.7 Capture lessons learned in `.claude/memory/` (per the repo's finish protocol)
 
-- [ ] 16.1 (After v1.6.1 final stabilizes — not blocking the v1.6.1-RC1 cut.) Archive the `shop-metapackage-ce` GitHub repo and update its README to point at `o3-shop/o3-shop`. Its v1.6.0 tag already pins the final pre-archival state; no new tag is needed.
+## 16. Verification of the v1.6.1-RC1 cut
+
+> Note: v1.6.0 shipped pre-fold-in (with the old hardcoded `ShopVersion.php`). There is no separate manual v1.6.1 release — `bin/release` cuts v1.6.1-RC1 directly from `--from v1.6.0` (Section 15) using the pre-fold-in metapackage indirection in Step 1. These tasks verify the result of that run and run after Section 15.
+
+- [ ] 16.1 Verify a fresh `composer install` of `o3-shop v1.6.1-RC1` produces a working shop with `ShopVersion::getVersion() === "v1.6.1-RC1"` (folds in former §12.2 — composer-install integration check against the post-fold-in `o3-shop/composer.json`)
+- [ ] 16.2 Smoke-test the admin UI: confirm the version display shows `v1.6.1-RC1`
+- [ ] 16.3 Verify `o3-shop/composer.json` at `v1.6.1-RC1` is post-fold-in (no `o3-shop/shop-metapackage-ce` in `require`, `replace: oxid-esales/oxideshop-metapackage-ce` present)
+- [ ] 16.4 Verify the v1.6.1-RC1 dist archive does not contain `.next-bump` (archive.exclude works end-to-end) (folds in former §12.3 — `.next-bump` archive-exclude check, exercised end-to-end against the real cut)
+
+## 17. Post-v1.6.1-final cleanup
+
+- [ ] 17.1 (After v1.6.1 final stabilizes — not blocking the v1.6.1-RC1 cut.) Archive the `shop-metapackage-ce` GitHub repo and update its README to point at `o3-shop/o3-shop`. Its v1.6.0 tag already pins the final pre-archival state; no new tag is needed.

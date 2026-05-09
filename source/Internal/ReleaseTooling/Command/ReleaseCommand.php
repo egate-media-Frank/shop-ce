@@ -1,0 +1,265 @@
+<?php
+
+/**
+ * This file is part of O3-Shop.
+ *
+ * O3-Shop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * O3-Shop is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with O3-Shop.  If not, see <http://www.gnu.org/licenses/>
+ *
+ * @copyright  Copyright (c) 2026 O3-Shop (https://www.o3-shop.com)
+ * @license    https://www.gnu.org/licenses/gpl-3.0  GNU General Public License 3 (GPLv3)
+ */
+
+declare(strict_types=1);
+
+namespace OxidEsales\EshopCommunity\Internal\ReleaseTooling\Command;
+
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Composer\HttpsRawComposerJsonFetcher;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Composer\HttpsRawRepoFileFetcher;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Constraint\ConstraintUpdater;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\SymfonyProcessExecutor;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Graph\DepTreeWalker;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Notes\GhCliReleaseNotesProvider;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Notes\ReleaseNotesAggregator;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\DefaultBranchResolver;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\DryRunPrinter;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlanner;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Snapshot\FromSnapshotBuilder;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Tag\TagCutter;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Version\CandidateVersionResolver;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Version\GitLsRemoteRepoIntrospector;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Throwable;
+
+/**
+ * Drives a tier-by-tier release across the o3-shop repo network.
+ *
+ * Section 11 (this iteration): wires the algorithm chain (Sections
+ * 4-9) and the pre-flight gates (Section 10) into a single
+ * `--dry-run` plan printout. Live execution lands with Section 14.
+ *
+ * See: openspec/changes/automate-release-procedure/specs/release-orchestration/spec.md
+ */
+class ReleaseCommand extends Command
+{
+    /**
+     * Bump-level pattern accepted in --bump <repo>=<level>:
+     *   patch | minor | major | v<semver> (e.g. v2.0.0, v1.6.1-RC1)
+     */
+    public const BUMP_LEVEL_PATTERN
+        = '/^(patch|minor|major|v\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?)$/';
+
+    /**
+     * Repo slug pattern (left side of --bump <slug>=<level>).
+     * Matches lower-case alphanumerics, hyphens, dots — no slashes
+     * (the o3-shop/ prefix is implied).
+     */
+    public const BUMP_REPO_PATTERN = '/^[a-z0-9][a-z0-9.-]*$/';
+
+    public const EXIT_OK = 0;
+    public const EXIT_USAGE_ERROR = 2;
+    public const EXIT_PRE_FLIGHT_ABORT = 3;
+    public const EXIT_PLAN_ERROR = 4;
+
+    /** @var string|null */
+    protected static $defaultName = 'release';
+
+    private ?ReleasePlanner $planner;
+    private DryRunPrinter $printer;
+
+    /**
+     * Both arguments are optional so production invocations build
+     * defaults inline; tests inject fakes via the constructor.
+     */
+    public function __construct(?ReleasePlanner $planner = null, ?DryRunPrinter $printer = null)
+    {
+        parent::__construct();
+        $this->planner = $planner;
+        $this->printer = $printer ?? new DryRunPrinter();
+    }
+
+    protected function configure(): void
+    {
+        $this
+            ->setName(static::$defaultName)
+            ->setDescription(
+                'Drive a tier-by-tier release across the o3-shop repo network.'
+            )
+            ->setHelp(
+                "Mandatory: --from <previous-shop-tag> --to <shop-version-to-cut>.\n"
+                . "Both anchor the per-repo \"did anything change?\" check and the\n"
+                . "cross-repo release-notes generation.\n\n"
+                . "Override per-repo bump levels via repeatable --bump <repo>=<level>\n"
+                . "where <level> is patch | minor | major | v<exact-semver>.\n\n"
+                . "--dry-run prints the plan without performing any state-changing\n"
+                . 'action (no commits, no tags, no GitHub releases).'
+            )
+            ->addOption(
+                'from',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Previous shop release tag (e.g. v1.6.0). Required.'
+            )
+            ->addOption(
+                'to',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Shop version to cut (e.g. v1.6.1-RC1). Required.'
+            )
+            ->addOption(
+                'bump',
+                'b',
+                InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+                'Override per-repo bump level. Format: <repo>=<level>; '
+                . 'level is patch | minor | major | v<semver>. Repeatable.'
+            )
+            ->addOption(
+                'dry-run',
+                null,
+                InputOption::VALUE_NONE,
+                'Print the plan without performing any state-changing action.'
+            );
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        $from = $input->getOption('from');
+        $to = $input->getOption('to');
+        $bumps = $input->getOption('bump') ?: [];
+        $dryRun = (bool) $input->getOption('dry-run');
+
+        if (!is_string($from) || $from === '') {
+            $this->writeUsageError($output, '--from is required.');
+            return self::EXIT_USAGE_ERROR;
+        }
+        if (!is_string($to) || $to === '') {
+            $this->writeUsageError($output, '--to is required.');
+            return self::EXIT_USAGE_ERROR;
+        }
+
+        $bumpFlags = [];
+        foreach ($bumps as $bump) {
+            $error = $this->validateBumpValue($bump);
+            if ($error !== null) {
+                $this->writeUsageError($output, $error);
+                return self::EXIT_USAGE_ERROR;
+            }
+            [$slug, $level] = explode('=', $bump, 2);
+            $bumpFlags[$slug] = $level;
+        }
+
+        $planner = $this->planner ?? $this->buildDefaultPlanner();
+
+        try {
+            $plan = $planner->plan($from, $to, $bumpFlags);
+        } catch (Throwable $e) {
+            $output->writeln(sprintf('<error>Plan failed: %s</error>', $e->getMessage()));
+            return self::EXIT_PLAN_ERROR;
+        }
+
+        $this->printer->print($plan, $output);
+
+        if ($plan->shouldAbort()) {
+            return self::EXIT_PRE_FLIGHT_ABORT;
+        }
+
+        if ($dryRun) {
+            $output->writeln('<info>Dry-run complete. No state-changing actions performed.</info>');
+            return self::EXIT_OK;
+        }
+
+        $output->writeln(
+            '<comment>Live execution (commit constraint changes, cut tags, '
+            . 'create draft GitHub releases, open merge-back PRs) is not yet '
+            . 'wired — Section 14 in openspec/changes/automate-release-procedure/'
+            . 'tasks.md adds it. Re-run with --dry-run to preview.</comment>'
+        );
+        return self::EXIT_OK;
+    }
+
+    /**
+     * Returns null when the value parses as <repo>=<level> with a valid
+     * level; an error message otherwise.
+     */
+    public function validateBumpValue(string $value): ?string
+    {
+        $eq = strpos($value, '=');
+        if ($eq === false || $eq === 0 || $eq === strlen($value) - 1) {
+            return sprintf(
+                'Malformed --bump value %s. Expected <repo>=<level> where '
+                . 'level is patch | minor | major | v<semver>.',
+                self::quote($value)
+            );
+        }
+        $repo = substr($value, 0, $eq);
+        $level = substr($value, $eq + 1);
+
+        if (!preg_match(self::BUMP_REPO_PATTERN, $repo)) {
+            return sprintf(
+                'Malformed --bump repo slug %s. Expected lowercase '
+                . 'alphanumerics, hyphens, dots; no slashes.',
+                self::quote($repo)
+            );
+        }
+        if (!preg_match(self::BUMP_LEVEL_PATTERN, $level)) {
+            return sprintf(
+                'Malformed --bump level %s. Expected patch | minor | major | '
+                . 'v<semver>.',
+                self::quote($level)
+            );
+        }
+        return null;
+    }
+
+    private function buildDefaultPlanner(): ReleasePlanner
+    {
+        $exec = new SymfonyProcessExecutor();
+        $composerJsonFetcher = new HttpsRawComposerJsonFetcher();
+        $fileFetcher = new HttpsRawRepoFileFetcher();
+        $branchResolver = new DefaultBranchResolver();
+
+        $snapshotBuilder = new FromSnapshotBuilder($composerJsonFetcher);
+        $walker = new DepTreeWalker($composerJsonFetcher, $branchResolver);
+        $repos = new GitLsRemoteRepoIntrospector($exec);
+        $versionResolver = new CandidateVersionResolver($repos);
+        $tagCutter = new TagCutter($fileFetcher);
+        $constraintUpdater = new ConstraintUpdater();
+        $notesAggregator = new ReleaseNotesAggregator(new GhCliReleaseNotesProvider());
+
+        return new ReleasePlanner(
+            $snapshotBuilder,
+            $walker,
+            $versionResolver,
+            $tagCutter,
+            $constraintUpdater,
+            $notesAggregator,
+            $branchResolver,
+            null // pre-flight runner skipped for dry-run unless wired explicitly
+        );
+    }
+
+    private function writeUsageError(OutputInterface $output, string $message): void
+    {
+        $output->writeln('<error>' . $message . '</error>');
+        $output->writeln(
+            'Usage: bin/release --from <tag> --to <tag> '
+            . '[--bump <repo>=<level> ...] [--dry-run]'
+        );
+    }
+
+    private static function quote(string $value): string
+    {
+        return "'" . $value . "'";
+    }
+}

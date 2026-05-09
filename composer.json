@@ -68,13 +68,15 @@
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
-    "bin": ["bin/oe-console"],
+    "bin": ["bin/oe-console", "bin/release"],
     "scripts": {
         "post-install-cmd": [
+            "OxidEsales\\EshopCommunity\\Core\\ShopVersionGenerator::generate",
             "Incenteev\\ParameterHandler\\ScriptHandler::buildParameters",
             "@oe:ide-helper:generate"
         ],
         "post-update-cmd": [
+            "OxidEsales\\EshopCommunity\\Core\\ShopVersionGenerator::generate",
             "Incenteev\\ParameterHandler\\ScriptHandler::buildParameters",
             "@oe:ide-helper:generate"
         ],
@@ -110,6 +112,9 @@
         "branch-alias": {
             "dev-b-1.5": "1.5-dev"
         }
+    },
+    "archive": {
+        "exclude": [".next-bump"]
     },
     "config": {
         "allow-plugins": {

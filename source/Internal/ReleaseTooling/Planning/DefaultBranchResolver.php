@@ -35,6 +35,7 @@ final class DefaultBranchResolver
     public const PACKAGE_TO_BRANCH = [
         'o3-shop/o3-shop' => 'b-1.6',
         'o3-shop/shop-ce' => 'b-1.6',
+        'o3-shop/shop-metapackage-ce' => 'b-1.6',
         'o3-shop/testing-library' => 'b-1.6',
         'o3-shop/shop-facts' => 'b-1.6',
         'o3-shop/shop-ide-helper' => 'b-1.6',

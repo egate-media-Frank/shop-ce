@@ -42,6 +42,7 @@ final class DefaultBranchResolver
         'o3-shop/shop-doctrine-migration-wrapper' => 'b-1.6',
         'o3-shop/shop-demodata-installer' => 'b-1.6',
         'o3-shop/gdpr-optin-module' => 'b-1.0',
+        'o3-shop/paypal-module' => 'b-1.0',
         'o3-shop/usercentrics' => 'b-1.0',
         'o3-shop/codeception-modules' => 'b-1.0',
         'o3-shop/php-selenium' => 'b-1.0',

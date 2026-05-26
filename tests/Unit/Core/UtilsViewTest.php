@@ -238,7 +238,6 @@ class UtilsViewTest extends \OxidTestCase
         $this->assertNull(oxRegistry::getSession()->getVariable('ErrorController'));
 
         // Clear expected log warning from translating test message
-        $this->exceptionLogHelper->clearExceptionLogFile();
     }
 
     public function testAddErrorToDisplayCustomDestinationFromPost()
@@ -260,7 +259,6 @@ class UtilsViewTest extends \OxidTestCase
         $this->assertEquals('oxwminibasket', $aErrorController['myDest']);
 
         // Clear expected log warning from translating test message
-        $this->exceptionLogHelper->clearExceptionLogFile();
     }
 
     public function testAddErrorToDisplayDefaultDestination()
@@ -280,7 +278,6 @@ class UtilsViewTest extends \OxidTestCase
         $this->assertEquals('start', $aErrorController['default']);
 
         // Clear expected log warning from translating test message
-        $this->exceptionLogHelper->clearExceptionLogFile();
     }
 
     public function testAddErrorToDisplayUsingExeptionObject()
@@ -301,7 +298,6 @@ class UtilsViewTest extends \OxidTestCase
         $this->assertEquals('testMessage', $oEx->getOxMessage());
 
         // Clear expected log warning from translating test message
-        $this->exceptionLogHelper->clearExceptionLogFile();
     }
 
     public function testAddErrorToDisplayIfNotSet()

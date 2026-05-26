@@ -97,3 +97,6 @@ oxideshop.log
 # Tracked in archive; not in active openspec/changes.
 /openspec/changes/fix-internal-shim-call-sites/
 /.claude/worktrees/*
+
+# Satellite working tree for testing-library (same pattern as shop-demodata-ce).
+/testing-library

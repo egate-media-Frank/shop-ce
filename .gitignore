@@ -100,3 +100,5 @@ oxideshop.log
 
 # Satellite working tree for testing-library (same pattern as shop-demodata-ce).
 /testing-library
+
+/graphify-out

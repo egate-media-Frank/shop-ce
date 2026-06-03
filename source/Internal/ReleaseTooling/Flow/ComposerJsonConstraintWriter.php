@@ -79,8 +79,13 @@ final class ComposerJsonConstraintWriter
             preg_quote($dep, '/'),
             preg_quote($oldConstraint, '/')
         );
+        // Braced backreferences are mandatory here: with `$3%s`, a new
+        // constraint starting with a digit (e.g. `1.6.1-RC11` passed without
+        // the `v` prefix) turns `$3` + `1` into the nonexistent group `$31`,
+        // which PCRE expands to an empty string — silently eating the
+        // opening quote and the constraint's first character.
         $replacement = sprintf(
-            '$1%s$1$2$3%s$3',
+            '${1}%s${1}${2}${3}%s${3}',
             $dep,
             $newConstraint
         );

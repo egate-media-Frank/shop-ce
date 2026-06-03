@@ -86,6 +86,30 @@ JSON);
         $this->assertStringContainsString('"o3-shop/usercentrics": "v1.2.2"', $contents);
     }
 
+    public function testReplacesConstraintStartingWithDigitWithoutEatingBackreference(): void
+    {
+        // Regression: with an unbraced `$3` backreference, a new constraint
+        // starting with a digit (version passed without `v` prefix) formed
+        // the nonexistent group `$31`, which PCRE expanded to an empty
+        // string — producing `"o3-shop/shop-ce": .6.1-RC11"` and invalid
+        // JSON (Packagist skipped tag 1.6.1-RC11 because of this).
+        $this->tmpFile = $this->writeTempJson(<<<'JSON'
+{
+  "require": {
+    "o3-shop/shop-ce": "v1.6.1-RC10"
+  }
+}
+JSON);
+        $writer = new ComposerJsonConstraintWriter();
+        $writer->apply($this->tmpFile, [
+            $this->edit('o3-shop/o3-shop', 'require', 'o3-shop/shop-ce', 'v1.6.1-RC10', '1.6.1-RC11'),
+        ]);
+
+        $contents = file_get_contents($this->tmpFile);
+        $this->assertStringContainsString('"o3-shop/shop-ce": "1.6.1-RC11"', $contents);
+        $this->assertNotNull(json_decode($contents), 'edited composer.json must remain valid JSON');
+    }
+
     public function testThrowsWhenExpectedConstraintNotFound(): void
     {
         $this->tmpFile = $this->writeTempJson(<<<'JSON'

@@ -22,6 +22,7 @@ declare(strict_types=1);
 
 namespace OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow;
 
+use Composer\Semver\Comparator;
 use RuntimeException;
 
 /**
@@ -49,6 +50,11 @@ use RuntimeException;
  *   - Theme repos whose `theme.php` is missing the `'version'` line
  *     entirely → throws. The contract is broken; better to fail loud
  *     than silently skip.
+ *   - Theme repos whose `theme.php` already declares a version NEWER
+ *     than the tag being cut → throws. A hand-bumped theme.php ahead of
+ *     the computed tag is the signature of a forgotten `--bump` /
+ *     `.next-bump` (the v1.3.5 release silently downgraded a 1.4.0
+ *     theme.php this way); better to abort than ship a downgrade.
  */
 final class ThemeFileVersionWriter
 {
@@ -91,6 +97,16 @@ final class ThemeFileVersionWriter
         if ($m[4] === $bareVersion) {
             return [];
         }
+        if ($this->isDowngrade($m[4], $bareVersion)) {
+            throw new RuntimeException(sprintf(
+                "theme.php at %s already declares version '%s', which is newer than the '%s' tag about to be cut. "
+                . 'This usually means a --bump flag or .next-bump file was forgotten. '
+                . 'Refusing to downgrade — re-run with the intended bump level.',
+                $themeFilePath,
+                $m[4],
+                $bareVersion
+            ));
+        }
 
         $rewritten = preg_replace_callback(
             $pattern,
@@ -115,5 +131,20 @@ final class ThemeFileVersionWriter
             ));
         }
         return ['theme.php'];
+    }
+
+    /**
+     * True when the current theme.php version is strictly newer than the
+     * version about to be written. Unparseable current values (themes
+     * with non-semver placeholders) skip the guard — the rewrite is then
+     * a correction, not a downgrade.
+     */
+    private function isDowngrade(string $currentVersion, string $newVersion): bool
+    {
+        try {
+            return Comparator::greaterThan($currentVersion, $newVersion);
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }

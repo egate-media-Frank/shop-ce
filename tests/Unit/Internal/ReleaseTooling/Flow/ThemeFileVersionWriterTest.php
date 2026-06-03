@@ -97,6 +97,28 @@ PHP);
         );
     }
 
+    public function testThrowsInsteadOfDowngradingNewerThemeFileVersion(): void
+    {
+        // Regression: the v1.3.5 o3-theme release silently downgraded a
+        // hand-bumped theme.php (1.4.0) because .next-bump was not set
+        // and the default patch bump computed a lower tag. The file being
+        // ahead of the tag must abort the release instead.
+        $repo = $this->mkRepoWithTheme("<?php\n\$aTheme = ['version' => '1.4.0'];");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Refusing to downgrade');
+        (new ThemeFileVersionWriter())->apply($repo, 'v1.3.5');
+    }
+
+    public function testDowngradeGuardSkipsUnparseableCurrentVersion(): void
+    {
+        $repo = $this->mkRepoWithTheme("<?php\n\$aTheme = ['version' => 'dev'];");
+        $staged = (new ThemeFileVersionWriter())->apply($repo, 'v1.3.5');
+
+        $this->assertSame(['theme.php'], $staged);
+        $this->assertStringContainsString("'version' => '1.3.5'", file_get_contents($repo . '/theme.php'));
+    }
+
     public function testThrowsWhenThemeFileLacksVersionLine(): void
     {
         $repo = $this->mkRepoWithTheme(<<<'PHP'

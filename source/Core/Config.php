@@ -477,7 +477,22 @@ class Config extends \OxidEsales\Eshop\Core\Base
      */
     public function reinitialize()
     {
+        // Clear the in-memory caches before re-running init(). Otherwise a
+        // value loaded during the FIRST init() survives into the SECOND
+        // init() if no row with the same key happens to be returned by the
+        // second load — which is exactly the case when the active theme
+        // (or shop) changes between the two inits. Concretely: a setting
+        // seeded only for theme:o3-theme leaked into a subsequent
+        // initializeConfig() run that targeted theme:wave, because the
+        // second LIKE 'theme:wave%' filter didn't return that key and the
+        // first init's value was never cleared. See o3-shop/o3-shop#125.
+        //
+        // Callers that genuinely want a value to survive a reinitialize()
+        // need to re-apply it after the call — `reinitialize` is by name
+        // a full reset, not a merge.
         $this->_blInit = false;
+        $this->_aConfigParams = [];
+        $this->_aThemeConfigParams = [];
         $this->init();
     }
 
@@ -2192,12 +2207,13 @@ class Config extends \OxidEsales\Eshop\Core\Base
     {
         if ($this->sLogDir === null) {
             $shopDir = $this->getConfigParam('sShopDir');
-            $logDir = $shopDir . 'log/';
+            $this->sLogDir = 'log/';
+            $logDir = $shopDir . $this->sLogDir;
             if ($shopDir && strpos($shopDir, '<') === false) {
                 oxNew(\OxidEsales\EshopCommunity\Core\FileSystem\FileSystem::class)
                     ->createDirIfNotExists($logDir, $shopDir);
             }
-            return $this->sLogDir = $logDir;
+            return $logDir;
         }
 
         return $this->getConfigParam('sShopDir') . $this->sLogDir;

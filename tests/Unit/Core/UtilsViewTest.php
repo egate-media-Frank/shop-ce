@@ -38,7 +38,7 @@ class UtilsViewTest extends \OxidTestCase
         parent::setUpBeforeClass();
 
         $theme = oxNew(Theme::class);
-        $theme->load('wave');
+        $theme->load('o3-theme');
         $theme->activate();
     }
 
@@ -76,8 +76,8 @@ class UtilsViewTest extends \OxidTestCase
         $shopPath = $this->getShopPath();
 
         $dirs = [
-            $shopPath . 'Application/views/wave/tpl/',
-            $shopPath . 'out/wave/tpl/',
+            $shopPath . 'Application/views/o3-theme/tpl/',
+            $shopPath . 'out/o3-theme/tpl/',
         ];
 
         $utilsView = $this->getUtilsViewMockNotAdmin();
@@ -94,8 +94,8 @@ class UtilsViewTest extends \OxidTestCase
         $shopPath = $this->getShopPath();
 
         $dirs = [
-            $shopPath . 'Application/views/wave/tpl/',
-            $shopPath . 'out/wave/tpl/',
+            $shopPath . 'Application/views/o3-theme/tpl/',
+            $shopPath . 'out/o3-theme/tpl/',
         ];
 
         $utilsView = $this->getUtilsViewMockNotAdmin();
@@ -152,11 +152,6 @@ class UtilsViewTest extends \OxidTestCase
             $aDirs[] = $sDir;
         }
 
-        $sDir = $myConfig->getOutDir(true) . 'wave/tpl/';
-        if (!in_array($sDir, $aDirs)) {
-            $aDirs[] = $sDir;
-        }
-
         $utilsView = $this->getUtilsViewMockNotAdmin();
         $utilsView->setTemplateDir('testDir1');
         $utilsView->setTemplateDir('testDir2');
@@ -176,11 +171,6 @@ class UtilsViewTest extends \OxidTestCase
         $aDirs[] = 'testDir2';
         $aDirs[] = $myConfig->getTemplateDir(false);
         $sDir = $myConfig->getOutDir(true) . $myConfig->getConfigParam('sTheme') . '/tpl/';
-        if (!in_array($sDir, $aDirs)) {
-            $aDirs[] = $sDir;
-        }
-
-        $sDir = $myConfig->getOutDir(true) . 'wave/tpl/';
         if (!in_array($sDir, $aDirs)) {
             $aDirs[] = $sDir;
         }
@@ -248,7 +238,6 @@ class UtilsViewTest extends \OxidTestCase
         $this->assertNull(oxRegistry::getSession()->getVariable('ErrorController'));
 
         // Clear expected log warning from translating test message
-        $this->exceptionLogHelper->clearExceptionLogFile();
     }
 
     public function testAddErrorToDisplayCustomDestinationFromPost()
@@ -270,7 +259,6 @@ class UtilsViewTest extends \OxidTestCase
         $this->assertEquals('oxwminibasket', $aErrorController['myDest']);
 
         // Clear expected log warning from translating test message
-        $this->exceptionLogHelper->clearExceptionLogFile();
     }
 
     public function testAddErrorToDisplayDefaultDestination()
@@ -290,7 +278,6 @@ class UtilsViewTest extends \OxidTestCase
         $this->assertEquals('start', $aErrorController['default']);
 
         // Clear expected log warning from translating test message
-        $this->exceptionLogHelper->clearExceptionLogFile();
     }
 
     public function testAddErrorToDisplayUsingExeptionObject()
@@ -311,7 +298,6 @@ class UtilsViewTest extends \OxidTestCase
         $this->assertEquals('testMessage', $oEx->getOxMessage());
 
         // Clear expected log warning from translating test message
-        $this->exceptionLogHelper->clearExceptionLogFile();
     }
 
     public function testAddErrorToDisplayIfNotSet()
@@ -657,10 +643,6 @@ class UtilsViewTest extends \OxidTestCase
         $dirs = [];
         $dirs[] = $config->getTemplateDir(false);
         $dir = $config->getOutDir(true) . $config->getConfigParam('sTheme') . '/tpl/';
-        if (!in_array($dir, $dirs)) {
-            $dirs[] = $dir;
-        }
-        $dir = $config->getOutDir(true) . 'wave/tpl/';
         if (!in_array($dir, $dirs)) {
             $dirs[] = $dir;
         }

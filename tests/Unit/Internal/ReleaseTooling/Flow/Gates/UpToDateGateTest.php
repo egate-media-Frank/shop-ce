@@ -52,16 +52,69 @@ final class UpToDateGateTest extends TestCase
         $this->assertStringContainsString('will ship in this release', $messages);
     }
 
-    public function testBehindOnlyAborts(): void
+    public function testBehindOnlyFastForwardsCleanTree(): void
     {
-        $exec = $this->execWithRevList("5\t0");
+        $exec = new FakeProcessExecutor([
+            'git fetch origin b-1.6' => new ProcessOutcome(0, '', ''),
+            'git rev-list --left-right --count origin/b-1.6...HEAD'
+                => new ProcessOutcome(0, "5\t0", ''),
+            'git status --porcelain' => new ProcessOutcome(0, '', ''),
+            'git merge --ff-only origin/b-1.6' => new ProcessOutcome(0, "Fast-forward\n", ''),
+        ]);
+        $gate = new UpToDateGate($exec);
+        $outcome = $gate->evaluate('/tmp/repo', 'b-1.6', 'o3-shop/shop-ce');
+
+        $this->assertSame(GateOutcome::STATUS_WARNING, $outcome->status());
+        $messages = implode("\n", $outcome->messages());
+        $this->assertStringContainsString('5 commits behind', $messages);
+        $this->assertStringContainsString('fast-forwarded to match', $messages);
+
+        // The fast-forward must actually run, in the repo's working tree.
+        $this->assertContains(
+            ['git', 'merge', '--ff-only', 'origin/b-1.6'],
+            $exec->commands()
+        );
+    }
+
+    public function testBehindOnlyDoesNotTouchDirtyTree(): void
+    {
+        $exec = new FakeProcessExecutor([
+            'git fetch origin b-1.6' => new ProcessOutcome(0, '', ''),
+            'git rev-list --left-right --count origin/b-1.6...HEAD'
+                => new ProcessOutcome(0, "2\t0", ''),
+            'git status --porcelain' => new ProcessOutcome(0, " M composer.json\n", ''),
+        ]);
         $gate = new UpToDateGate($exec);
         $outcome = $gate->evaluate('/tmp/repo', 'b-1.6', 'o3-shop/shop-ce');
 
         $this->assertSame(GateOutcome::STATUS_ABORT, $outcome->status());
         $messages = implode("\n", $outcome->messages());
-        $this->assertStringContainsString('5 commits behind', $messages);
-        $this->assertStringContainsString('pull and re-run', $messages);
+        $this->assertStringContainsString('2 commits behind', $messages);
+        $this->assertStringContainsString('working tree', $messages);
+        // Must never merge over uncommitted changes.
+        $this->assertNotContains(
+            ['git', 'merge', '--ff-only', 'origin/b-1.6'],
+            $exec->commands()
+        );
+    }
+
+    public function testBehindOnlyAbortsWhenFastForwardFails(): void
+    {
+        $exec = new FakeProcessExecutor([
+            'git fetch origin b-1.6' => new ProcessOutcome(0, '', ''),
+            'git rev-list --left-right --count origin/b-1.6...HEAD'
+                => new ProcessOutcome(0, "1\t0", ''),
+            'git status --porcelain' => new ProcessOutcome(0, '', ''),
+            'git merge --ff-only origin/b-1.6'
+                => new ProcessOutcome(128, '', "fatal: Not possible to fast-forward, aborting.\n"),
+        ]);
+        $gate = new UpToDateGate($exec);
+        $outcome = $gate->evaluate('/tmp/repo', 'b-1.6', 'o3-shop/shop-ce');
+
+        $this->assertSame(GateOutcome::STATUS_ABORT, $outcome->status());
+        $messages = implode("\n", $outcome->messages());
+        $this->assertStringContainsString('could not be fast-forwarded', $messages);
+        $this->assertStringContainsString('pull manually and re-run', $messages);
     }
 
     public function testDivergedAborts(): void

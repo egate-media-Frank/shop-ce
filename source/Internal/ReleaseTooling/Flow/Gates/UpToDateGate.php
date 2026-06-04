@@ -35,7 +35,7 @@ use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\ProcessExecutor;
  * Four outcomes:
  *   - in-sync       → pass
  *   - ahead only    → warning ("local commits will ship — confirm intent")
- *   - behind only   → abort ("pull and re-run")
+ *   - behind only   → fast-forward to origin, then warning ("updated")
  *   - diverged      → abort ("rebase or merge required")
  *
  * The "ahead, warn-not-abort" path is deliberate: a maintainer who
@@ -43,6 +43,20 @@ use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\ProcessExecutor;
  * is the common case — those commits are the very thing that's
  * supposed to ship. Surfacing them visibly lets the maintainer
  * confirm intent without blocking the run.
+ *
+ * The "behind, fast-forward-not-abort" path removes the manual
+ * "pull and re-run" round-trip. Auto-cloned repos are current by
+ * virtue of the fresh clone; folded-in clones (themes under
+ * `source/Application/views/*`, the demodata satellite, …) and
+ * previously-cloned siblings are reused as-is and routinely lag
+ * behind origin. Rather than abort on every stale clone, this gate
+ * fast-forwards a behind-only branch to `origin/<branch>` (ff-only,
+ * never a merge commit) so the release proceeds from the same state
+ * a fresh clone would have produced. The repo set comes from the
+ * filesystem search in `RepoPathDiscovery`, so this applies uniformly
+ * to every discovered clone without any hard-coded list. A dirty tree
+ * is left untouched (WorkingTreeGate reports that separately) and a
+ * non-fast-forwardable branch still aborts.
  */
 class UpToDateGate implements PreFlightGate
 {
@@ -129,17 +143,7 @@ class UpToDateGate implements PreFlightGate
             ]);
         }
         if ($behind > 0 && $ahead === 0) {
-            return GateOutcome::abort(self::NAME, [
-                sprintf(
-                    '%s: local %s is %d commit%s behind origin/%s; '
-                    . 'pull and re-run',
-                    $packageName,
-                    $expectedBranch,
-                    $behind,
-                    $behind === 1 ? '' : 's',
-                    $expectedBranch
-                ),
-            ]);
+            return $this->fastForwardToOrigin($repoPath, $expectedBranch, $packageName, $behind);
         }
         return GateOutcome::abort(self::NAME, [
             sprintf(
@@ -150,6 +154,77 @@ class UpToDateGate implements PreFlightGate
                 $expectedBranch,
                 $ahead,
                 $behind
+            ),
+        ]);
+    }
+
+    /**
+     * Behind-only branch: fast-forward it to `origin/<branch>` so the
+     * release runs from the same state a fresh clone would produce.
+     * Only ever a fast-forward (no merge commit). A dirty tree is left
+     * untouched — WorkingTreeGate reports that separately, and merging
+     * over local changes is exactly what we must not do here.
+     */
+    private function fastForwardToOrigin(
+        string $repoPath,
+        string $expectedBranch,
+        string $packageName,
+        int $behind
+    ): GateOutcome {
+        $plural = $behind === 1 ? '' : 's';
+
+        $status = $this->exec->execute(['git', 'status', '--porcelain'], $repoPath, 30);
+        if (!$status->isSuccess()) {
+            return GateOutcome::abort(self::NAME, [
+                sprintf(
+                    'git status --porcelain failed in %s: %s',
+                    $repoPath,
+                    trim($status->stderr())
+                ),
+            ]);
+        }
+        if (trim($status->stdout()) !== '') {
+            return GateOutcome::abort(self::NAME, [
+                sprintf(
+                    '%s: local %s is %d commit%s behind origin/%s but the working tree '
+                    . 'is dirty; commit or stash, then re-run so it can be fast-forwarded',
+                    $packageName,
+                    $expectedBranch,
+                    $behind,
+                    $plural,
+                    $expectedBranch
+                ),
+            ]);
+        }
+
+        $merge = $this->exec->execute(
+            ['git', 'merge', '--ff-only', 'origin/' . $expectedBranch],
+            $repoPath,
+            120
+        );
+        if (!$merge->isSuccess()) {
+            return GateOutcome::abort(self::NAME, [
+                sprintf(
+                    '%s: local %s is %d commit%s behind origin/%s and could not be '
+                    . 'fast-forwarded automatically (%s); pull manually and re-run',
+                    $packageName,
+                    $expectedBranch,
+                    $behind,
+                    $plural,
+                    $expectedBranch,
+                    trim($merge->stderr())
+                ),
+            ]);
+        }
+
+        return GateOutcome::warning(self::NAME, [
+            sprintf(
+                '%s: local %s was %d commit%s behind origin/%s; fast-forwarded to match',
+                $packageName,
+                $expectedBranch,
+                $behind,
+                $plural,
+                $expectedBranch
             ),
         ]);
     }

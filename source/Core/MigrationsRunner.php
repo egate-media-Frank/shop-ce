@@ -1,0 +1,195 @@
+<?php
+
+/**
+ * This file is part of O3-Shop.
+ *
+ * O3-Shop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * O3-Shop is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with O3-Shop.  If not, see <http://www.gnu.org/licenses/>
+ *
+ * @copyright  Copyright (c) 2022 O3-Shop (https://www.o3-shop.com)
+ * @license    https://www.gnu.org/licenses/gpl-3.0  GNU General Public License 3 (GPLv3)
+ */
+
+namespace OxidEsales\EshopCommunity\Core;
+
+use Composer\IO\IOInterface;
+use Composer\Script\Event;
+use Doctrine\DBAL\DriverManager;
+use OxidEsales\DoctrineMigrationWrapper\Migrations;
+use OxidEsales\DoctrineMigrationWrapper\MigrationsBuilder;
+use OxidEsales\EshopCommunity\Internal\Container\BootstrapContainerFactory;
+use OxidEsales\EshopCommunity\Internal\Framework\DIContainer\Service\ShopStateServiceInterface;
+use OxidEsales\EshopCommunity\Internal\Transition\Utility\BasicContextInterface;
+use OxidEsales\Facts\Facts;
+use Symfony\Component\Console\Output\ConsoleOutput;
+
+/**
+ * Composer post-update script: runs database migrations (and the bundled view
+ * regeneration) automatically, but only when a usable database is available.
+ *
+ * The guard probes the database with a short connect timeout BEFORE calling
+ * ShopStateService::isLaunched(), because that service connects with no PDO
+ * timeout and would otherwise block the whole composer run on an unreachable host.
+ */
+class MigrationsRunner
+{
+    /** Connect timeout (seconds) for the database availability probe. */
+    private const CONNECT_TIMEOUT_SECONDS = 2;
+
+    /**
+     * Composer script entry point.
+     */
+    public static function run(Event $event): void
+    {
+        (new static())->process($event->getIO());
+    }
+
+    /**
+     * Orchestrates the guard and migration run. Public for unit testing.
+     */
+    public function process(IOInterface $io): void
+    {
+        if (!$this->configFileExists()) {
+            $this->writeSkip($io, 'No config file found — the shop is not set up yet.');
+            return;
+        }
+
+        if (!$this->canConnectToDatabase()) {
+            $this->writeSkip($io, 'The database is not reachable.');
+            return;
+        }
+
+        if (!$this->isShopLaunched()) {
+            $this->writeSkip($io, 'The shop is not launched yet.');
+            return;
+        }
+
+        $this->loadShopBootstrap();
+
+        try {
+            $exitCode = $this->runMigrations($io);
+        } catch (\Throwable $exception) {
+            $this->writeFailure($io, 'The migration command threw an exception: ' . $exception->getMessage());
+            throw new \RuntimeException(
+                'O3-Shop database migration failed: ' . $exception->getMessage(),
+                0,
+                $exception
+            );
+        }
+
+        if ($exitCode !== 0) {
+            $this->writeFailure($io, 'The migration command returned exit code ' . $exitCode . '.');
+            throw new \RuntimeException('O3-Shop database migration failed with exit code ' . $exitCode . '.');
+        }
+
+        $io->write('<info>O3-Shop: database migrations and views are up to date.</info>');
+    }
+
+    /**
+     * @return bool whether the shop config file is present.
+     */
+    protected function configFileExists(): bool
+    {
+        $context = BootstrapContainerFactory::getBootstrapContainer()->get(BasicContextInterface::class);
+
+        return file_exists($context->getConfigFilePath());
+    }
+
+    /**
+     * Opens a DBAL connection with a short connect timeout and runs a trivial
+     * query. Never throws — any failure means "no usable database".
+     *
+     * @return bool whether the database is reachable.
+     */
+    protected function canConnectToDatabase(): bool
+    {
+        $facts = new Facts();
+
+        try {
+            $connection = DriverManager::getConnection([
+                'dbname' => $facts->getDatabaseName(),
+                'user' => $facts->getDatabaseUserName(),
+                'password' => $facts->getDatabasePassword(),
+                'host' => $facts->getDatabaseHost(),
+                'port' => $facts->getDatabasePort(),
+                'driver' => $facts->getDatabaseDriver(),
+                'driverOptions' => [\PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT_SECONDS],
+            ]);
+            $connection->executeQuery('SELECT 1');
+            $connection->close();
+        } catch (\Throwable $exception) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @return bool whether the shop reports itself as launched.
+     */
+    protected function isShopLaunched(): bool
+    {
+        return BootstrapContainerFactory::getBootstrapContainer()
+            ->get(ShopStateServiceInterface::class)
+            ->isLaunched();
+    }
+
+    /**
+     * Loads the full shop bootstrap (Registry / ConfigFile) needed by the
+     * migration wrapper's bundled view regeneration.
+     */
+    protected function loadShopBootstrap(): void
+    {
+        require_once (new Facts())->getSourcePath() . DIRECTORY_SEPARATOR . 'bootstrap.php';
+    }
+
+    /**
+     * Runs the migration command. View regeneration is bundled inside execute().
+     *
+     * @return int migration exit code (0 = success).
+     */
+    protected function runMigrations(IOInterface $io): int
+    {
+        $migrations = (new MigrationsBuilder())->build();
+        $migrations->setOutput(new ConsoleOutput());
+
+        return (int) $migrations->execute(Migrations::MIGRATE_COMMAND);
+    }
+
+    /**
+     * Writes a prominent, unmissable warning that migrations were NOT executed,
+     * listing the manual commands to run on the target environment.
+     */
+    protected function writeSkip(IOInterface $io, string $reason): void
+    {
+        $border = str_repeat('!', 70);
+        $io->writeError('<warning>' . $border . '</warning>');
+        $io->writeError('<warning>!! O3-Shop: DATABASE MIGRATIONS WERE *NOT* EXECUTED.</warning>');
+        $io->writeError('<warning>!! Reason: ' . $reason . '</warning>');
+        $io->writeError('<warning>!! Run these on the target environment after deployment:</warning>');
+        $io->writeError('<warning>!!   vendor/bin/oe-eshop-db_migrate migrations:migrate</warning>');
+        $io->writeError('<warning>!!   vendor/bin/oe-eshop-db_views_generate</warning>');
+        $io->writeError('<warning>' . $border . '</warning>');
+    }
+
+    /**
+     * Writes a loud error distinguishing a failed migration from a broken composer run.
+     */
+    protected function writeFailure(IOInterface $io, string $detail): void
+    {
+        $border = str_repeat('!', 70);
+        $io->writeError('<error>' . $border . '</error>');
+        $io->writeError('<error>!! O3-Shop: DATABASE MIGRATION FAILED (this is NOT a composer error).</error>');
+        $io->writeError('<error>!! ' . $detail . '</error>');
+        $io->writeError('<error>!! The shop database may be in an inconsistent state — investigate before use.</error>');
+        $io->writeError('<error>' . $border . '</error>');
+    }
+}

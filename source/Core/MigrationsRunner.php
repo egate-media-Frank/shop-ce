@@ -112,6 +112,7 @@ class MigrationsRunner
     protected function canConnectToDatabase(): bool
     {
         $facts = new Facts();
+        $connection = null;
 
         try {
             $connection = DriverManager::getConnection([
@@ -121,12 +122,17 @@ class MigrationsRunner
                 'host' => $facts->getDatabaseHost(),
                 'port' => $facts->getDatabasePort(),
                 'driver' => $facts->getDatabaseDriver(),
+                // pdo_mysql honors PDO::ATTR_TIMEOUT as the connect timeout in this stack;
+                // PDO::MYSQL_ATTR_CONNECT_TIMEOUT is not defined in this PHP build. Verified empirically.
                 'driverOptions' => [\PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT_SECONDS],
             ]);
             $connection->executeQuery('SELECT 1');
-            $connection->close();
         } catch (\Throwable $exception) {
             return false;
+        } finally {
+            if ($connection !== null) {
+                $connection->close();
+            }
         }
 
         return true;

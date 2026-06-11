@@ -127,6 +127,7 @@ class MigrationsRunnerTest extends \OxidTestCase
     public function testRunsMigrationsWhenGuardPasses(): void
     {
         $io = $this->createMock(IOInterface::class);
+        $io->expects($this->once())->method('write');
 
         $runner = $this->makeRunner(true, true, true, 0);
         $runner->process($io);

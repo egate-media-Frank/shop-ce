@@ -62,6 +62,29 @@ database is available — never hanging, never failing a legitimately DB-less co
    event. So `source/` is synced before our script runs. **To be verified empirically** with a real
    `composer update` during implementation.
 
+## Implementation correction (2026-06-11): run migrations in a subprocess, not in-process
+
+The original plan reused `MigrationsBuilder->build()->execute(MIGRATE_COMMAND)` **in-process** and
+relied on the wrapper's bundled view regeneration. Integration testing proved this fails:
+
+> `The command defined in "Doctrine\Migrations\Tools\Console\Command\DumpSchemaCommand" cannot have an empty name.`
+
+**Root cause:** `post-update-cmd` scripts execute inside Composer's own PHP process, which already has
+Composer's bundled *modern* symfony/console loaded into the class space. Building the Doctrine
+Migrations console application in-process picks up that version instead of the shop's symfony/console
+3.4. doctrine/migrations 2.x declares command names via the legacy static `$defaultName` property,
+which modern symfony/console ignores (it requires the `#[AsCommand]` attribute), so command names
+resolve to empty and `Application::add()` throws. The standalone `vendor/bin/oe-eshop-db_migrate` works
+because it runs in a separate PHP process with only the shop's symfony/console 3.4 loaded. This is, in
+part, the deeper historical reason migrations were kept out of composer.
+
+**Resolution:** `MigrationsRunner::runMigrations()` runs the existing bins as **separate PHP
+subprocesses** via pure-PHP `passthru` (no symfony in our process): `oe-eshop-db_migrate
+migrations:migrate --no-interaction`, then `oe-eshop-db_views_generate` (run explicitly so a
+migrate-without-views half-update cannot happen). Consequently `loadShopBootstrap()` is removed — the
+subprocesses self-bootstrap, and the guard checks (`isLaunched()`, the DBAL probe) already work in
+Composer's process without it. The guard ordering, skip semantics, and failure semantics are unchanged.
+
 ## Architecture
 
 A new class `OxidEsales\EshopCommunity\Core\MigrationsRunner` (`source/Core/MigrationsRunner.php`),

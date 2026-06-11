@@ -23,21 +23,28 @@ namespace OxidEsales\EshopCommunity\Core;
 use Composer\IO\IOInterface;
 use Composer\Script\Event;
 use Doctrine\DBAL\DriverManager;
-use OxidEsales\DoctrineMigrationWrapper\Migrations;
-use OxidEsales\DoctrineMigrationWrapper\MigrationsBuilder;
 use OxidEsales\EshopCommunity\Internal\Container\BootstrapContainerFactory;
 use OxidEsales\EshopCommunity\Internal\Framework\DIContainer\Service\ShopStateServiceInterface;
 use OxidEsales\EshopCommunity\Internal\Transition\Utility\BasicContextInterface;
 use OxidEsales\Facts\Facts;
-use Symfony\Component\Console\Output\ConsoleOutput;
 
 /**
- * Composer post-update script: runs database migrations (and the bundled view
- * regeneration) automatically, but only when a usable database is available.
+ * Composer post-update script: runs database migrations and view regeneration
+ * automatically, but only when a usable database is available.
  *
- * The guard probes the database with a short connect timeout BEFORE calling
- * ShopStateService::isLaunched(), because that service connects with no PDO
- * timeout and would otherwise block the whole composer run on an unreachable host.
+ * Two deliberate design points:
+ *  - The database is probed with a short connect timeout BEFORE calling
+ *    ShopStateService::isLaunched(), because that service connects with no PDO
+ *    timeout and would otherwise block the whole composer run on an unreachable host.
+ *  - Migrations and view regeneration run in SEPARATE PHP subprocesses, never
+ *    in-process. Composer executes post-update scripts inside its own runtime,
+ *    which already has Composer's bundled (modern) symfony/console loaded.
+ *    Building the Doctrine Migrations console application in-process would pick up
+ *    that version instead of the shop's symfony/console 3.4 — and
+ *    doctrine/migrations 2.x command names (declared via the legacy static
+ *    `$defaultName` property) resolve to empty there, throwing "command cannot
+ *    have an empty name". A fresh subprocess loads only the shop's autoloader.
+ *    See runMigrations().
  */
 class MigrationsRunner
 {
@@ -71,8 +78,6 @@ class MigrationsRunner
             $this->writeSkip($io, 'The shop is not launched yet.');
             return;
         }
-
-        $this->loadShopBootstrap();
 
         try {
             $exitCode = $this->runMigrations($io);
@@ -149,25 +154,44 @@ class MigrationsRunner
     }
 
     /**
-     * Loads the full shop bootstrap (Registry / ConfigFile) needed by the
-     * migration wrapper's bundled view regeneration.
-     */
-    protected function loadShopBootstrap(): void
-    {
-        require_once (new Facts())->getSourcePath() . DIRECTORY_SEPARATOR . 'bootstrap.php';
-    }
-
-    /**
-     * Runs the migration command. View regeneration is bundled inside execute().
+     * Runs the database migration and view regeneration as SEPARATE PHP
+     * subprocesses (see the class docblock for why in-process execution is unsafe
+     * from a composer script). View regeneration is run explicitly so a "migrate
+     * without views" half-update can never happen.
      *
-     * @return int migration exit code (0 = success).
+     * @return int exit code of the first failing step, or 0 when both succeed.
      */
     protected function runMigrations(IOInterface $io): int
     {
-        $migrations = (new MigrationsBuilder())->build();
-        $migrations->setOutput(new ConsoleOutput());
+        $io->write('<info>O3-Shop: running database migrations and view regeneration ...</info>');
 
-        return (int) $migrations->execute(Migrations::MIGRATE_COMMAND);
+        $migrateExitCode = $this->runShopBinary('oe-eshop-db_migrate', ['migrations:migrate', '--no-interaction']);
+        if ($migrateExitCode !== 0) {
+            return $migrateExitCode;
+        }
+
+        return $this->runShopBinary('oe-eshop-db_views_generate', []);
+    }
+
+    /**
+     * Runs a shop vendor binary in a fresh PHP subprocess, streaming its output.
+     *
+     * @param string   $binaryName name of the executable in vendor/bin.
+     * @param string[] $arguments  arguments to pass to the binary.
+     *
+     * @return int the subprocess exit code.
+     */
+    private function runShopBinary(string $binaryName, array $arguments): int
+    {
+        $binaryPath = (new Facts())->getVendorPath() . '/bin/' . $binaryName;
+
+        $commandParts = array_merge([PHP_BINARY, $binaryPath], $arguments);
+        $command = implode(' ', array_map('escapeshellarg', $commandParts));
+
+        $exitCode = 0;
+        passthru($command, $exitCode);
+
+        return $exitCode;
     }
 
     /**

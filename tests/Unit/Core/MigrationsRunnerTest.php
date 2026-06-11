@@ -37,7 +37,6 @@ class MigrationsRunnerTest extends \OxidTestCase
     ): MigrationsRunner {
         return new class ($configExists, $canConnect, $launched, $migrateReturn) extends MigrationsRunner {
             public bool $migrated = false;
-            public bool $bootstrapped = false;
             private bool $configExists;
             private bool $canConnect;
             private bool $launched;
@@ -64,11 +63,6 @@ class MigrationsRunnerTest extends \OxidTestCase
             protected function isShopLaunched(): bool
             {
                 return $this->launched;
-            }
-
-            protected function loadShopBootstrap(): void
-            {
-                $this->bootstrapped = true;
             }
 
             protected function runMigrations(IOInterface $io): int
@@ -132,7 +126,6 @@ class MigrationsRunnerTest extends \OxidTestCase
         $runner = $this->makeRunner(true, true, true, 0);
         $runner->process($io);
 
-        $this->assertTrue($runner->bootstrapped, 'Shop bootstrap must be loaded before migrating');
         $this->assertTrue($runner->migrated, 'Migrations must run when the guard passes');
     }
 

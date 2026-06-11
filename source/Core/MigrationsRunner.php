@@ -154,10 +154,20 @@ class MigrationsRunner
     }
 
     /**
-     * Runs the database migration and view regeneration as SEPARATE PHP
+     * Runs the database migration, then view regeneration, as SEPARATE PHP
      * subprocesses (see the class docblock for why in-process execution is unsafe
-     * from a composer script). View regeneration is run explicitly so a "migrate
-     * without views" half-update can never happen.
+     * from a composer script).
+     *
+     * Two important details:
+     *  - The migrate command is passed with NO edition argument, so migrations for
+     *    ALL editions and modules run. The bin reads its second argv as an edition
+     *    filter; passing an unrecognised value (e.g. a flag) silently filters every
+     *    migration out.
+     *  - View regeneration is run explicitly. The migrate command tries to
+     *    regenerate views itself, but its internal oxconfig probe builds an invalid
+     *    PDO DSN from the Doctrine driver name ('pdo_mysql:...' instead of
+     *    'mysql:...'), so that step silently no-ops. Running the views bin
+     *    explicitly guarantees a "migrate without views" half-update cannot happen.
      *
      * @return int exit code of the first failing step, or 0 when both succeed.
      */
@@ -165,7 +175,7 @@ class MigrationsRunner
     {
         $io->write('<info>O3-Shop: running database migrations and view regeneration ...</info>');
 
-        $migrateExitCode = $this->runShopBinary('oe-eshop-db_migrate', ['migrations:migrate', '--no-interaction']);
+        $migrateExitCode = $this->runShopBinary('oe-eshop-db_migrate', ['migrations:migrate']);
         if ($migrateExitCode !== 0) {
             return $migrateExitCode;
         }
@@ -181,7 +191,7 @@ class MigrationsRunner
      *
      * @return int the subprocess exit code.
      */
-    private function runShopBinary(string $binaryName, array $arguments): int
+    protected function runShopBinary(string $binaryName, array $arguments): int
     {
         $binaryPath = (new Facts())->getVendorPath() . '/bin/' . $binaryName;
 

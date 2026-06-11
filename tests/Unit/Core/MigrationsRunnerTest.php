@@ -82,7 +82,9 @@ class MigrationsRunnerTest extends \OxidTestCase
         $this->assertTrue($reflection->isStatic(), 'run must be static');
         $params = $reflection->getParameters();
         $this->assertCount(1, $params);
-        $this->assertSame(\Composer\Script\Event::class, $params[0]->getType()->getName());
+        $type = $params[0]->getType();
+        $this->assertNotNull($type, 'run() parameter must be type-hinted');
+        $this->assertSame(\Composer\Script\Event::class, $type->getName());
     }
 
     public function testSkipsWhenConfigFileMissing(): void
@@ -149,5 +151,67 @@ class MigrationsRunnerTest extends \OxidTestCase
 
         $this->expectException(\RuntimeException::class);
         $runner->process($io);
+    }
+
+    /**
+     * Build a runner that records runShopBinary() calls and returns the given
+     * exit codes per binary, exposing runMigrations() for direct testing.
+     */
+    private function makeBinaryRecordingRunner(int $migrateExit = 0, int $viewsExit = 0): MigrationsRunner
+    {
+        return new class ($migrateExit, $viewsExit) extends MigrationsRunner {
+            public array $calls = [];
+            private int $migrateExit;
+            private int $viewsExit;
+
+            public function __construct(int $migrateExit, int $viewsExit)
+            {
+                $this->migrateExit = $migrateExit;
+                $this->viewsExit = $viewsExit;
+            }
+
+            public function exposeRunMigrations(IOInterface $io): int
+            {
+                return $this->runMigrations($io);
+            }
+
+            protected function runShopBinary(string $binaryName, array $arguments): int
+            {
+                $this->calls[] = [$binaryName, $arguments];
+
+                return $binaryName === 'oe-eshop-db_migrate' ? $this->migrateExit : $this->viewsExit;
+            }
+        };
+    }
+
+    public function testRunMigrationsRunsMigrateThenViewsWithoutEditionArgument(): void
+    {
+        $runner = $this->makeBinaryRecordingRunner(0, 0);
+
+        $exitCode = $runner->exposeRunMigrations($this->createMock(IOInterface::class));
+
+        $this->assertSame(0, $exitCode);
+        $this->assertSame(
+            [
+                ['oe-eshop-db_migrate', ['migrations:migrate']],
+                ['oe-eshop-db_views_generate', []],
+            ],
+            $runner->calls,
+            'Must migrate (no edition argument) and then regenerate views'
+        );
+    }
+
+    public function testRunMigrationsSkipsViewsWhenMigrateFails(): void
+    {
+        $runner = $this->makeBinaryRecordingRunner(3, 0);
+
+        $exitCode = $runner->exposeRunMigrations($this->createMock(IOInterface::class));
+
+        $this->assertSame(3, $exitCode, 'Must return the migrate failure code');
+        $this->assertSame(
+            [['oe-eshop-db_migrate', ['migrations:migrate']]],
+            $runner->calls,
+            'Views must not run when migration fails'
+        );
     }
 }

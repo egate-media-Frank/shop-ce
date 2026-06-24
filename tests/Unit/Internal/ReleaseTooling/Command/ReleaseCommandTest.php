@@ -587,6 +587,37 @@ class ReleaseCommandTest extends TestCase
         $this->assertCount(1, $exec->calls);
     }
 
+    public function testFinalReleaseReportsVerificationWhenAllReposPass(): void
+    {
+        // The gate must report it ran even on the happy path, so an
+        // operator (esp. in dry-run) can see the safety check happened.
+        $exec = new FakeProcessExecutor([
+            'gh api repos/o3-shop/o3-shop --jq .delete_branch_on_merge'
+                => new ProcessOutcome(0, "false\n", ''),
+        ]);
+        $gate = new DeleteBranchOnMergeGate($exec);
+        $stub = new StubReleasePlanner(new ReleasePlan(
+            'v1.6.1',
+            'v1.6.2',
+            new FromSnapshot([]),
+            [],
+            [],
+            '',
+            []
+        ));
+        $tester = new CommandTester(new ReleaseCommand($stub, null, null, $gate));
+        $status = $tester->execute([
+            '--from' => 'v1.6.1',
+            '--to' => 'v1.6.2',
+            '--dry-run' => true,
+        ]);
+        $this->assertSame(ReleaseCommand::EXIT_OK, $status);
+        $display = $tester->getDisplay();
+        $this->assertStringContainsString('verifying delete_branch_on_merge', $display);
+        $this->assertStringContainsString('o3-shop/o3-shop: ok', $display);
+        $this->assertCount(1, $exec->calls);
+    }
+
     public function testFinalReleaseChecksTaggedCandidatesAndAbortsOnOne(): void
     {
         // A tagged candidate (tagCut() !== null) gets a merge-back PR, so

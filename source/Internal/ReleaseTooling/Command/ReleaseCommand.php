@@ -312,6 +312,11 @@ class ReleaseCommand extends Command
         }
         $packages[] = LiveExecutor::O3_SHOP_PROJECT;
 
+        $output->writeln(sprintf(
+            'Pre-flight: verifying delete_branch_on_merge is disabled on %d merge-back repo(s)',
+            count($packages)
+        ));
+
         $aborted = false;
         foreach ($packages as $package) {
             $outcome = $gate->evaluate('', $branchResolver($package), $package);
@@ -320,7 +325,12 @@ class ReleaseCommand extends Command
                 foreach ($outcome->messages() as $message) {
                     $output->writeln(sprintf('<error>[%s] %s</error>', $gate->name(), $message));
                 }
+                continue;
             }
+            $output->writeln(sprintf('  %s: ok', $package));
+        }
+        if (!$aborted) {
+            $output->writeln('  All merge-back repos have head-branch auto-delete disabled.');
         }
         return !$aborted;
     }

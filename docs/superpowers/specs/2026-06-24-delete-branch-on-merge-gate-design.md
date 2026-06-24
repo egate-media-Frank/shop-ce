@@ -45,13 +45,15 @@ The gate is **read-only** (a single `gh api` GET) and ignores side effects, cons
 
 ### Repo scope — why no hardcoded list
 
-The gate is dropped into the existing per-repo `PreFlightRunner` loop. That loop already runs for **exactly the set that receives a merge-back PR**: every tagged candidate plus `o3-shop/o3-shop` (see `LiveExecutor::openMergeBackPrs()` and the pre-flight loop in `ReleasePlanner`). So the gate automatically checks precisely the repos at risk — no central repo list to maintain or let drift. The issue names three repos (`shop-ce`, `shop-metapackage-ce`, `o3-shop`) because those are today's release-line repos; the dynamic set is strictly safer and matches the codebase's deliberate "discover repos from the dependency graph" design.
+The gate runs over **exactly the set that receives a merge-back PR**: every tagged candidate plus `o3-shop/o3-shop` (see `LiveExecutor::openMergeBackPrs()`). The planner already computes this merge-back set (even in dry-run), so the gate automatically checks precisely the repos at risk — no central repo list to maintain or let drift. The issue names three repos (`shop-ce`, `shop-metapackage-ce`, `o3-shop`) because those are today's release-line repos; the dynamic set is strictly safer and matches the codebase's deliberate "discover repos from the dependency graph" design.
+
+Because the check is **remote-only** — keyed on the repo slug via `gh api`, not on a local checkout — it does **not** depend on `--repo-path`. It therefore runs in a small dedicated pre-flight pass keyed on the merge-back package set, rather than inside the existing per-repo `PreFlightRunner` loop (which is gated on `repoPaths` because its other gates do local `git` work). The gate still implements `PreFlightGate` and its `GateOutcome` flows into the same `PreFlightReport`; only its invocation site differs.
 
 ### Enforce on final releases only
 
-Merge-back PRs are auto-opened **only for final shop releases** (target `--to` without an `-rc`/`-alpha`/`-beta` suffix). An RC run opens no merge-back PR, so a flipped setting cannot bite it. The gate is therefore **registered only for final-release runs**, so an RC release is never aborted over a setting that is irrelevant to it. This matches the issue's wording precisely: verify "*for every repo it will open a merge-back PR against*."
+Merge-back PRs are auto-opened **only for final shop releases** (target `--to` without an `-rc`/`-alpha`/`-beta` suffix). An RC run opens no merge-back PR, so a flipped setting cannot bite it. The gate therefore runs **only for final-release runs**, so an RC release is never aborted over a setting that is irrelevant to it. This matches the issue's wording precisely: verify "*for every repo it will open a merge-back PR against*."
 
-Implementation: `ReleaseCommand::buildDefaultPreFlightRunner()` already constructs the gate array. It will conditionally append `DeleteBranchOnMergeGate` when the resolved `--to` is a final (non-prerelease) version, reusing the existing prerelease-suffix detection that governs merge-back PR opening. The `PreFlightGate` interface is unchanged (no new parameters threaded through every gate).
+Implementation: a dedicated pre-flight pass runs `DeleteBranchOnMergeGate` over the merge-back package set when the resolved `--to` is a final (non-prerelease) version, reusing the existing prerelease-suffix detection that governs merge-back PR opening. The `PreFlightGate` interface is unchanged (no new parameters threaded through every gate).
 
 ### Abort message
 
@@ -67,7 +69,13 @@ For the fail-closed (couldn't-verify) case, the message states that the setting 
 
 ### Dry-run behavior
 
-Unchanged. Pre-flight runs only when `repoPaths` is non-empty (live mode, or explicit `--repo-path`); a pure remote dry-run with no repo paths skips pre-flight entirely, preserving the cheap preview path. The new gate inherits this behavior — no new plumbing.
+**This gate is the deliberate exception.** It runs on **every final-release invocation, including a bare `--dry-run`** (with or without `--repo-path`), because it is remote-only and read-only — so a dry-run honestly previews whether the real release would be blocked by a flipped setting, *before* the operator does the real thing.
+
+- **Live final release:** an abort halts the run before any tag is cut or PR opened.
+- **Dry-run final release:** the abort outcome is surfaced in the preview output so the operator sees the release would be blocked; the dry-run otherwise changes nothing.
+- **RC runs (live or dry-run):** the gate does not run.
+
+The **other** pre-flight gates keep their existing behavior unchanged — they still run only when `repoPaths` is non-empty, and a bare remote-only dry-run still skips them to stay fast. Only this single remote gate is added to the dry-run path.
 
 ## Testing
 
@@ -78,7 +86,9 @@ Unit tests in `tests/Unit/Internal/ReleaseTooling/Flow/Gates/` using the existin
 - **aborts (fail-closed)** when the `gh` call exits non-zero — asserts abort (not warning) and that stderr is surfaced.
 - **aborts (fail-closed)** on unexpected/empty stdout.
 - Asserts `name() === 'delete-branch-on-merge'` and that the exact `gh api repos/<slug> --jq .delete_branch_on_merge` command was invoked.
-- **Wiring test**: the gate is present in the runner for a final `--to` (e.g. `v1.6.2`) and absent for a prerelease `--to` (e.g. `v1.6.2-rc1`).
+- **Wiring tests**:
+  - The check runs for a final `--to` (e.g. `v1.6.2`) and is skipped for a prerelease `--to` (e.g. `v1.6.2-rc1`).
+  - The check runs on a **bare `--dry-run` final release** (no `--repo-path`), over the merge-back set, and a `true` result surfaces as an abort in the dry-run report — while the other (local) gates remain skipped in that bare dry-run.
 
 ## Wiki prerequisite snippet (deliverable)
 
@@ -93,6 +103,7 @@ A markdown snippet committed in-repo (e.g. `docs/release/delete-branch-on-merge-
 
 - **Fail-closed** on `gh` failure / unexpected output (abort, not warn) — this gate guards an irreversible footgun.
 - **Final-release-only** enforcement — matches "repos it will open a merge-back PR against"; avoids aborting RC runs.
+- **Runs in dry-run too** (final releases) — uniquely among the gates, because it is remote-only/read-only; lets a dry-run preview whether the real release would be blocked. Other gates' dry-run behavior is unchanged.
 - **Dedicated gate** (not folded into `MergeBackPrGate`) — single responsibility, clean naming/testing.
-- **Dynamic repo scope** via the existing per-repo pre-flight loop — no hardcoded repo list.
+- **Dynamic repo scope** via a dedicated remote pre-flight pass over the merge-back set — no hardcoded repo list, not gated on `--repo-path`.
 - **No auto-remediation** — verify and abort only.

@@ -1,0 +1,8 @@
+; Active step-debugging config. Toggled on/off via `./docker.sh xdebug on|off`.
+; This .dist template is copied to zz-xdebug-debug.ini (loaded by PHP via
+; PHP_INI_SCAN_DIR). PHP only loads files ending in .ini, so this template is inert.
+xdebug.mode=develop,debug,coverage
+xdebug.start_with_request=yes
+xdebug.client_host=host.docker.internal
+xdebug.client_port=9003
+xdebug.log=/tmp/xdebug.log

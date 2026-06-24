@@ -580,6 +580,10 @@ class ReleaseCommandTest extends TestCase
         ]);
         $this->assertSame(ReleaseCommand::EXIT_PRE_FLIGHT_ABORT, $status);
         $this->assertStringContainsString('delete_branch_on_merge', $tester->getDisplay());
+        $this->assertStringContainsString(
+            'gh api -X PATCH repos/o3-shop/o3-shop -F delete_branch_on_merge=false',
+            $tester->getDisplay()
+        );
         $this->assertCount(1, $exec->calls);
     }
 

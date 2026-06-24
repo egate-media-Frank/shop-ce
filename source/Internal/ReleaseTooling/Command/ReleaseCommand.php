@@ -300,6 +300,7 @@ class ReleaseCommand extends Command
         ReleasePlan $plan,
         OutputInterface $output
     ): bool {
+        /** @var callable(string):string $branchResolver */
         $branchResolver = new DefaultBranchResolver();
         $packages = [];
         // Mirrors LiveExecutor::openMergeBackPrs(): every tagged

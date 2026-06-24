@@ -11,9 +11,23 @@ Xdebug is installed in the `shop` container. Step debugging is **off by default*
 ./docker.sh xdebug status   # show current state
 ```
 
-`on` connects to your IDE on **every** request while enabled, so turn it **off**
-before running the full test suite. The state is a file under `docker/xdebug/`
-and survives `./docker.sh start`.
+The state is a file under `docker/xdebug/` and survives `./docker.sh start`.
+
+### Triggering a debug session
+
+`on` uses **trigger mode** (`start_with_request=trigger`): being "on" does NOT make
+every request debug. A request only breaks into the debugger when it carries an
+`XDEBUG_TRIGGER`. This is deliberate — `start_with_request=yes` would make every page
+request *and* every CLI command (`oe-console`, `composer`, even `php -r`) open a session
+your IDE can grab and freeze, which is unusable against this codebase.
+
+- **Browser:** install the **Xdebug Helper** extension (Chrome/Firefox) and set it to
+  *Debug*, or append `?XDEBUG_TRIGGER=1` to the URL.
+- **CLI:** prefix the command with the env var:
+  ```bash
+  docker compose -f docker/docker-compose.yml exec -e XDEBUG_TRIGGER=1 shop \
+    php bin/oe-console <command>
+  ```
 
 > First-time setup only: the `host.docker.internal` resolution and ini scan dir
 > are applied by `docker/docker-compose.yml`. If you set this repo up before that
@@ -32,7 +46,9 @@ and survives `./docker.sh start`.
      also works.
 2. **Settings → PHP → Debug** → confirm Debug port `9003`.
 3. **Run → Start Listening for PHP Debug Connections** (the phone icon turns green).
-4. `./docker.sh xdebug on`, set a breakpoint, load a page at `http://localhost:8080`.
+4. `./docker.sh xdebug on`, set a breakpoint, then load a **triggered** page (Xdebug
+   Helper set to *Debug*, or `http://localhost:8080/?XDEBUG_TRIGGER=1`). See
+   [Triggering a debug session](#triggering-a-debug-session).
 
 ## VS Code
 
@@ -57,14 +73,17 @@ and survives `./docker.sh start`.
 ```
 
 3. Start the "Listen for Xdebug" configuration (F5).
-4. `./docker.sh xdebug on`, set a breakpoint, load a page.
+4. `./docker.sh xdebug on`, set a breakpoint, then load a **triggered** page (Xdebug
+   Helper set to *Debug*, or `?XDEBUG_TRIGGER=1`).
 
 ## CLI debugging
 
-With xdebug on, `oe-console` and other CLI scripts also connect:
+Prefix the command with `XDEBUG_TRIGGER=1` (trigger mode means a bare command will
+*not* start a debug session — that's what keeps `oe-console`/`composer` from hanging):
 
 ```bash
-docker compose -f docker/docker-compose.yml exec shop php bin/oe-console <command>
+docker compose -f docker/docker-compose.yml exec -e XDEBUG_TRIGGER=1 shop \
+  php bin/oe-console <command>
 ```
 
 ## Troubleshooting
@@ -81,8 +100,13 @@ docker compose -f docker/docker-compose.yml exec shop cat /tmp/xdebug.log
 - **`host.docker.internal` not resolving?** Confirm the `extra_hosts: host-gateway`
   entry exists in `docker/docker-compose.yml` and recreate the container with
   `./docker.sh start`.
-- **Path mapping wrong?** Breakpoints stay hollow / never bind — re-check that the
-  project root maps to `/var/www/html`.
+- **Path mapping wrong?** Breakpoints stay hollow / never bind — re-check that local
+  `source/` maps to `/var/www/html/source` (or repo root → `/var/www/html`).
+- **PhpStorm keeps warning about path mappings for `vendor/...` files?** That was the
+  old `develop` mode forwarding the codebase's thousands of PHP 8.2 deprecation notices
+  (from `vendor/`) to the IDE. The current config uses `xdebug.mode=debug,coverage`
+  (no `develop`), which stops the flood. Re-run `./docker.sh xdebug off && ./docker.sh xdebug on`
+  if you toggled it on before this change.
 - **Debugger stops on the first line of every request (no breakpoint set)?** That's the
   IDE's "break at first line" option, not a misconfiguration — it confirms the connection
   works. Turn it off in PhpStorm under **Run → Break at first line in PHP scripts**, or in

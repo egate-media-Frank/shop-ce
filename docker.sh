@@ -212,6 +212,59 @@ run_quarantine_tests() {
   $DOCKER_COMPOSE exec shop ./run-tests.sh --quarantine
 }
 
+toggle_xdebug() {
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  RED='\033[0;31m'
+  NC='\033[0m'
+
+  MY_DIR=$(getMyPath)
+  local dist="$MY_DIR/docker/xdebug/zz-xdebug-debug.ini.dist"
+  local active="$MY_DIR/docker/xdebug/zz-xdebug-debug.ini"
+
+  # status needs no container and no docker — just report host-file presence.
+  if [ "$1" = "status" ]; then
+      if [ -f "$active" ]; then
+          echo -e "${GREEN}xdebug step debugging: ON${NC}"
+      else
+          echo -e "${YELLOW}xdebug step debugging: OFF${NC} (coverage-only default)"
+      fi
+      return 0
+  fi
+
+  if [ "$1" != "on" ] && [ "$1" != "off" ]; then
+      echo "Usage: $0 xdebug <on|off|status>"
+      exit 1
+  fi
+
+  cd "$MY_DIR/docker" || { echo "Error: Docker directory not found"; exit 1; }
+  check_docker_compose
+
+  if ! $DOCKER_COMPOSE ps shop 2>/dev/null | grep -q "Up\|running"; then
+      echo -e "${RED} ✗ shop container is NOT running – start it first with './docker.sh start'. ${NC}"
+      exit 1
+  fi
+
+  if [ "$1" = "on" ]; then
+      if [ ! -f "$dist" ]; then
+          echo -e "${RED}Template not found: $dist${NC}"
+          exit 1
+      fi
+      cp "$dist" "$active" || { echo -e "${RED}Failed to write $active${NC}"; exit 1; }
+      $DOCKER_COMPOSE exec shop apache2ctl graceful
+      echo -e "${GREEN}✓ xdebug step debugging ENABLED.${NC}"
+      echo -e "${YELLOW}  → Start your IDE's debug listener on port 9003, then load a page.${NC}"
+      echo -e "${YELLOW}  → Connection log: $DOCKER_COMPOSE exec shop cat /tmp/xdebug.log${NC}"
+      echo -e "${YELLOW}  → Setup guide: docs/development/xdebug-step-debugging.md${NC}"
+  else
+      rm -f "$active"
+      $DOCKER_COMPOSE exec shop apache2ctl graceful
+      echo -e "${GREEN}✓ xdebug step debugging DISABLED (coverage-only).${NC}"
+  fi
+
+  cd "$MY_DIR"
+}
+
 run_npm_audits() {
   GREEN='\033[0;32m'
   RED='\033[0;31m'
@@ -403,6 +456,10 @@ case "$1" in
     cs-fixer)
         run_php_cs_fixer || exit 127
         ;;
+    xdebug)
+        shift
+        toggle_xdebug "$@" || exit 127
+        ;;
     playwright)
         shift
         cd "$MY_DIR/tests/Acceptance/playwright" || exit 127
@@ -426,6 +483,7 @@ case "$1" in
         echo "  test-all     Run php-cs-fixer, then full test suite"
         echo "  test-all-coverage  Run php-cs-fixer, then full test suite with coverage report"
         echo "  cs-fixer     Run php-cs-fixer on the entire codebase"
+        echo "  xdebug       Toggle step debugging: $0 xdebug <on|off|status>"
         echo "  quarantine   Run slow/special @group quarantine tests only"
         echo "  playwright   Run the Playwright browser test suite (auto-installs deps on first run)"
         echo ""

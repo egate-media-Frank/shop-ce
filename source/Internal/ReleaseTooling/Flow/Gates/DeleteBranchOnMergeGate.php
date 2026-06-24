@@ -35,6 +35,10 @@ use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\ProcessExecutor;
  * Remote-only: queries GitHub via `gh api` keyed on the repo slug, so
  * it needs no local checkout (and `$repoPath` is intentionally unused).
  * Fails CLOSED — any unverifiable result aborts.
+ *
+ * Output assumption: `--jq .delete_branch_on_merge` renders the JSON
+ * boolean as the lowercase strings `true`/`false`; anything else
+ * (e.g. `null`) is treated as unverifiable and aborts.
  */
 class DeleteBranchOnMergeGate implements PreFlightGate
 {

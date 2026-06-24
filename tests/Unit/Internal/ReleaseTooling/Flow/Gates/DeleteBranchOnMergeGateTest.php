@@ -56,10 +56,11 @@ class DeleteBranchOnMergeGateTest extends TestCase
 
     public function testFailsClosedWhenGhFails(): void
     {
-        $exec = new FakeProcessExecutor([], new ProcessOutcome(1, '', "could not authenticate\n"));
+        $exec = new FakeProcessExecutor([self::CMD => new ProcessOutcome(1, '', "could not authenticate\n")]);
         $outcome = (new DeleteBranchOnMergeGate($exec))->evaluate('', 'b-1.6', 'o3-shop/shop-ce');
         $this->assertTrue($outcome->aborts());
         $this->assertStringContainsString('gh api failed', $outcome->messages()[0]);
+        $this->assertCount(1, $exec->commands());
     }
 
     public function testFailsClosedOnUnexpectedOutput(): void

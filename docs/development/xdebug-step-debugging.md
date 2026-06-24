@@ -21,11 +21,15 @@ and survives `./docker.sh start`.
 
 ## PhpStorm
 
-1. **Settings → PHP → Servers** → add a server:
-   - Name: `o3shop` (any name)
+1. **Settings → PHP → Servers** → add a server (PhpStorm may auto-create one on the
+   first incoming connection):
+   - Name: `localhost` (any name)
    - Host: `localhost`, Port: `8080`
    - Debugger: Xdebug
-   - **Use path mappings** → map your project root (this repo) to `/var/www/html`.
+   - **Use path mappings** → map your local **`source/`** directory to
+     **`/var/www/html/source`** (Apache's DocumentRoot is `source/`, not the repo root).
+     PhpStorm usually fills this in for you. Mapping the repo root → `/var/www/html`
+     also works.
 2. **Settings → PHP → Debug** → confirm Debug port `9003`.
 3. **Run → Start Listening for PHP Debug Connections** (the phone icon turns green).
 4. `./docker.sh xdebug on`, set a breakpoint, load a page at `http://localhost:8080`.

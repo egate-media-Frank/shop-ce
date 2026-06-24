@@ -138,6 +138,63 @@ class RevocationTemplateValidatorTest extends TestCase
         $this->assertSame(0, $keyMissing[0]->getLangId());
     }
 
+    public function testInheritsPageAndEmailTemplatesFromParentTheme(): void
+    {
+        $parentId = 'wave';
+        $childId = 'emo3theme';
+        $langIds = [0, 1];
+
+        // Parent ships every revocation template; the child only declares
+        // `parentTheme` in its theme.php and ships none of its own.
+        $this->seedFullThemeTree($parentId, $langIds);
+        $this->seedThemePhp($parentId, null);
+        $this->seedThemePhp($childId, $parentId);
+
+        $language = $this->buildLanguageStub($langIds, true);
+
+        $missing = (new RevocationTemplateValidator($this->shopDir, $language))
+            ->validate(1, $childId, $langIds);
+
+        $this->assertSame(
+            [],
+            $missing,
+            'Templates inherited from the parent theme must not be reported missing.'
+        );
+    }
+
+    public function testReportsTemplateMissingFromBothChildAndParent(): void
+    {
+        $parentId = 'wave';
+        $childId = 'emo3theme';
+        $langIds = [0];
+
+        $this->seedFullThemeTree($parentId, $langIds);
+        $this->seedThemePhp($parentId, null);
+        $this->seedThemePhp($childId, $parentId);
+        // Remove a page template from the parent — now it exists in neither theme.
+        unlink($this->shopDir . '/Application/views/wave/tpl/page/revocation/revocation.tpl');
+
+        $language = $this->buildLanguageStub($langIds, true);
+
+        $missing = (new RevocationTemplateValidator($this->shopDir, $language))
+            ->validate(1, $childId, $langIds);
+
+        $pageMissing = array_values(array_filter(
+            $missing,
+            fn (MissingAsset $a) => $a->getAssetType() === MissingAsset::TYPE_PAGE_TEMPLATE
+        ));
+        $this->assertCount(
+            1,
+            $pageMissing,
+            'A template absent from the whole inheritance chain is still reported.'
+        );
+        $this->assertStringContainsString(
+            '/Application/views/emo3theme/',
+            $pageMissing[0]->getExpectedPath(),
+            'The missing asset is reported against the active (child) theme directory.'
+        );
+    }
+
     public function testReportsAllMissingAssetsTogether(): void
     {
         $themeId = 'wave';
@@ -188,6 +245,23 @@ class RevocationTemplateValidatorTest extends TestCase
         ] as $file) {
             touch($file);
         }
+    }
+
+    /**
+     * Write a minimal `theme.php` for a theme, mirroring what
+     * {@see \OxidEsales\Eshop\Core\Theme::load()} reads: a top-level
+     * `$aTheme` array. When `$parentId` is given, the theme declares it
+     * as its `parentTheme` so the validator can walk the inheritance chain.
+     */
+    private function seedThemePhp(string $themeId, ?string $parentId): void
+    {
+        $themeRoot = $this->shopDir . '/Application/views/' . $themeId . '/';
+        if (!is_dir($themeRoot)) {
+            mkdir($themeRoot, 0777, true);
+        }
+        $parentLine = $parentId !== null ? "    'parentTheme' => '$parentId',\n" : '';
+        $php = "<?php\n\$aTheme = [\n    'id' => '$themeId',\n$parentLine];\n";
+        file_put_contents($themeRoot . 'theme.php', $php);
     }
 
     /**

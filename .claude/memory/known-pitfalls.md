@@ -65,6 +65,9 @@ type: feedback
 ## Worktree docker needs the main repo's MariaDB up first
 - `./docker.sh start` inside a worktree fails fast with `ERROR: Shared MariaDB is not running` because the docker-compose stack expects a shared db container started by the main shop-ce checkout. Run `./docker.sh start` from the canonical `shop-ce/` directory once per session before bringing any worktree containers up; you don't need a separate db per worktree.
 
+## Worktree container name is `o3shop-{worktree}-shop-1`, not `o3shop-{worktree}-1`
+- CLAUDE.md says the per-worktree container is `o3shop-{worktree-name}-1`, but docker-compose names containers by **service**: the shop is `o3shop-{worktree}-shop-1`, plus `o3shop-{worktree}-adminer-1` and `o3shop-{worktree}-mailpit-1` (the shared db is `o3shop-shop-ce-db-1`). A `docker ps --filter name=o3shop-{worktree}-1` never matches (the `-shop-`/`-adminer-`/`-mailpit-` segment sits before the `-1`), so don't poll on that name. You rarely need the literal name anyway — `./docker.sh test*` resolves its own container. (Bit a subagent during #190; it adapted via `docker.sh`.)
+
 ## RssfeedTest hardcodes `http://localhost:8080`
 - `Unit/Application/Model/RssfeedTest::testPrepareUrlSeoOn|Off` asserts against a literal `http://localhost:8080/?cl=rss&...`. Worktrees bind shop to a different port (e.g. 9390) and these two tests always fail there with an `8080`↔`9390` diff. The failure is environmental, not a regression — ignore it when reviewing test-all results from a worktree, but capture it if a real fix to RSS URL composition is intended.
 

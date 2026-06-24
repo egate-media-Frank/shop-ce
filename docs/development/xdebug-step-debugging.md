@@ -79,3 +79,7 @@ docker compose -f docker/docker-compose.yml exec shop cat /tmp/xdebug.log
   `./docker.sh start`.
 - **Path mapping wrong?** Breakpoints stay hollow / never bind — re-check that the
   project root maps to `/var/www/html`.
+- **Debugger stops on the first line of every request (no breakpoint set)?** That's the
+  IDE's "break at first line" option, not a misconfiguration — it confirms the connection
+  works. Turn it off in PhpStorm under **Run → Break at first line in PHP scripts**, or in
+  VS Code by removing `"stopOnEntry": true` from the launch config.

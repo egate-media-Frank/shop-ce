@@ -107,3 +107,4 @@ A markdown snippet committed in-repo (e.g. `docs/release/delete-branch-on-merge-
 - **Dedicated gate** (not folded into `MergeBackPrGate`) — single responsibility, clean naming/testing.
 - **Dynamic repo scope** via a dedicated remote pre-flight pass over the merge-back set — no hardcoded repo list, not gated on `--repo-path`.
 - **No auto-remediation** — verify and abort only.
+- **Reports on the pass path too** — the check prints a header, a per-repo `ok`, and a success summary (not just abort messages), so an operator can see the safety check ran — especially in `--dry-run`, whose purpose is to preview a potential block. A silent pass is indistinguishable from "never ran." (Added after a real dry-run surfaced nothing because all repos were already `false`.)

@@ -23,11 +23,14 @@ declare(strict_types=1);
 namespace OxidEsales\EshopCommunity\Tests\Unit\Internal\ReleaseTooling\Command;
 
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Command\ReleaseCommand;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\DeleteBranchOnMergeGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\LiveExecutor;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\ProcessOutcome;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\DryRunPrinter;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlan;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlanner;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Snapshot\FromSnapshot;
+use OxidEsales\EshopCommunity\Tests\Unit\Internal\ReleaseTooling\Flow\FakeProcessExecutor;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -366,7 +369,9 @@ class ReleaseCommandTest extends TestCase
             ],
             ['o3-shop/shop-ce' => 'https://github.com/o3-shop/shop-ce/pull/200']
         );
-        $tester = new CommandTester(new ReleaseCommand($stub, null, $executor));
+        $tester = new CommandTester(
+            new ReleaseCommand($stub, null, $executor, $this->passingDeleteBranchGate())
+        );
         $status = $tester->execute([
             '--from' => 'v1.6.0',
             '--to' => 'v1.6.1',
@@ -431,7 +436,9 @@ class ReleaseCommandTest extends TestCase
             []
         ));
         $executor = new RecordingLiveExecutor(false, [], []);
-        $tester = new CommandTester(new ReleaseCommand($stub, null, $executor));
+        $tester = new CommandTester(
+            new ReleaseCommand($stub, null, $executor, $this->passingDeleteBranchGate())
+        );
         $status = $tester->execute([
             '--from' => 'v1.6.0',
             '--to' => 'v1.6.1',
@@ -462,7 +469,9 @@ class ReleaseCommandTest extends TestCase
             ['o3-shop/shop-ce' => 'https://github.com/o3-shop/shop-ce/releases/draft/v1.6.1'],
             []
         );
-        $tester = new CommandTester(new ReleaseCommand($stub, null, $executor));
+        $tester = new CommandTester(
+            new ReleaseCommand($stub, null, $executor, $this->passingDeleteBranchGate())
+        );
         $status = $tester->execute([
             '--from' => 'v1.6.0',
             '--to' => 'v1.6.1',
@@ -540,6 +549,67 @@ class ReleaseCommandTest extends TestCase
         $buildLiveExecutor->setAccessible(true);
         $live = $buildLiveExecutor->invoke($command, null);
         $this->assertInstanceOf(LiveExecutor::class, $live);
+    }
+
+    /* ---------- delete-branch-on-merge gate (#190) ---------- */
+
+    public function testFinalReleaseAbortsWhenDeleteBranchOnMergeIsTrue(): void
+    {
+        $exec = new FakeProcessExecutor([
+            'gh api repos/o3-shop/o3-shop --jq .delete_branch_on_merge'
+                => new ProcessOutcome(0, "true\n", ''),
+        ]);
+        $gate = new DeleteBranchOnMergeGate($exec);
+        $stub = new StubReleasePlanner(new ReleasePlan(
+            'v1.6.1',
+            'v1.6.2',
+            new FromSnapshot([]),
+            [],
+            [],
+            '',
+            []
+        ));
+        $tester = new CommandTester(new ReleaseCommand($stub, null, null, $gate));
+        $status = $tester->execute([
+            '--from' => 'v1.6.1',
+            '--to' => 'v1.6.2',
+            '--dry-run' => true,
+        ]);
+        $this->assertSame(ReleaseCommand::EXIT_PRE_FLIGHT_ABORT, $status);
+        $this->assertStringContainsString('delete_branch_on_merge', $tester->getDisplay());
+    }
+
+    public function testPreReleaseSkipsDeleteBranchOnMergeCheck(): void
+    {
+        $exec = new FakeProcessExecutor([
+            'gh api repos/o3-shop/o3-shop --jq .delete_branch_on_merge'
+                => new ProcessOutcome(0, "true\n", ''),
+        ]);
+        $gate = new DeleteBranchOnMergeGate($exec);
+        $stub = new StubReleasePlanner(new ReleasePlan(
+            'v1.6.1',
+            'v1.6.2-RC1',
+            new FromSnapshot([]),
+            [],
+            [],
+            '',
+            []
+        ));
+        $tester = new CommandTester(new ReleaseCommand($stub, null, null, $gate));
+        $status = $tester->execute([
+            '--from' => 'v1.6.1',
+            '--to' => 'v1.6.2-RC1',
+            '--dry-run' => true,
+        ]);
+        $this->assertSame(ReleaseCommand::EXIT_OK, $status);
+        $this->assertSame([], $exec->calls);
+    }
+
+    private function passingDeleteBranchGate(): DeleteBranchOnMergeGate
+    {
+        return new DeleteBranchOnMergeGate(
+            new FakeProcessExecutor([], new ProcessOutcome(0, "false\n", ''))
+        );
     }
 
     private function planThatAborts(): ReleasePlan

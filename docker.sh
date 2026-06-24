@@ -142,6 +142,7 @@ rebuild_containers() {
 
 run_tests() {
   GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
   RED='\033[0;31m'
   NC='\033[0m'
 
@@ -155,6 +156,13 @@ run_tests() {
   fi
 
   echo -e "${GREEN}✓ shop container is running – executing tests${NC}"
+
+  # Warn if step debugging is left on: start_with_request=yes makes every CLI/test
+  # process attempt a debugger connection on port 9003, slowing the whole suite.
+  if [ -f "$MY_DIR/docker/xdebug/zz-xdebug-debug.ini" ]; then
+      echo -e "${YELLOW}⚠ Xdebug step debugging is ON – the suite may be slow.${NC}"
+      echo -e "${YELLOW}  Run './docker.sh xdebug off' before the test suite for normal speed.${NC}"
+  fi
 
   # Clear the application cache before the suite — stale Smarty / module /
   # container caches have masked real failures in the past (a stale class map
@@ -251,14 +259,16 @@ toggle_xdebug() {
           exit 1
       fi
       cp "$dist" "$active" || { echo -e "${RED}Failed to write $active${NC}"; exit 1; }
-      $DOCKER_COMPOSE exec shop apache2ctl graceful
+      $DOCKER_COMPOSE exec shop apache2ctl graceful \
+          || { echo -e "${RED}Failed to reload Apache – xdebug may not be active.${NC}"; exit 1; }
       echo -e "${GREEN}✓ xdebug step debugging ENABLED.${NC}"
       echo -e "${YELLOW}  → Start your IDE's debug listener on port 9003, then load a page.${NC}"
       echo -e "${YELLOW}  → Connection log: $DOCKER_COMPOSE exec shop cat /tmp/xdebug.log${NC}"
       echo -e "${YELLOW}  → Setup guide: docs/development/xdebug-step-debugging.md${NC}"
   else
       rm -f "$active"
-      $DOCKER_COMPOSE exec shop apache2ctl graceful
+      $DOCKER_COMPOSE exec shop apache2ctl graceful \
+          || { echo -e "${RED}Failed to reload Apache – xdebug may still be active.${NC}"; exit 1; }
       echo -e "${GREEN}✓ xdebug step debugging DISABLED (coverage-only).${NC}"
   fi
 

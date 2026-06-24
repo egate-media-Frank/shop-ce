@@ -22,11 +22,18 @@ services:
   shop:
     build:
       dockerfile: Dockerfile
+    extra_hosts:
+      # Makes host.docker.internal resolve to the host on Colima / plain Linux
+      # Docker (auto on Docker Desktop). Required for Xdebug to reach the IDE.
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./../:/var/www/html
     environment:
       PATH: /var/www/html/vendor/o3-shop/testing-library/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       TZ: Europe/Berlin
+      # Scan the compiled-in default conf.d (leading ':') PLUS the bind-mounted
+      # xdebug dir, so ./docker.sh xdebug on|off takes effect without a rebuild.
+      PHP_INI_SCAN_DIR: ":/var/www/html/docker/xdebug"
     ports:
       - "${O3SHOP_PORT_HTTP:-8080}:80"
     working_dir: /var/www/html

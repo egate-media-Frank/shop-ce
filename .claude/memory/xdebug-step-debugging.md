@@ -25,12 +25,27 @@ connection *to* the IDE, so without resolution it can never reach it. Fix: the s
 has `extra_hosts: ["host.docker.internal:host-gateway"]`. Verified: resolves to the gateway
 (e.g. 192.168.5.2). This single missing entry is why hand-config attempts failed.
 
+## On-config: trigger mode + NO develop (do not revert)
+Active template `docker/xdebug/zz-xdebug-debug.ini.dist` uses `xdebug.mode=debug,coverage`
+and `start_with_request=trigger`. Two hard-won decisions (originally `develop,debug,coverage`
++ `yes`, both caused real pain — see #82 session):
+- **No `develop`**: on PHP 8.2 the old Doctrine DBAL 2.x + Smarty stack emits ~33k
+  `Deprecated` notices PER request; `develop` streams every one to the IDE as an error
+  notification → floods the debug session AND makes PhpStorm pop bogus "path mapping
+  misconfiguration" warnings for the `vendor/` files those notices reference.
+- **`trigger`, not `yes`**: `yes` opens a debug session on EVERY page request and EVERY CLI
+  command (oe-console, composer, even `php -r`). The IDE grabs+pauses them → apache worker
+  pool fills with stuck requests → whole site hangs; CLI commands freeze. `trigger` only
+  activates when a request carries `XDEBUG_TRIGGER` (browser "Xdebug Helper" ext,
+  `?XDEBUG_TRIGGER=1`, or `-e XDEBUG_TRIGGER=1` for CLI).
+
+PhpStorm path mapping: local `source/` → `/var/www/html/source` (DocumentRoot is `source/`).
+
 ## Apply-time costs (easy to forget)
 - Changing compose `environment`/`extra_hosts` → needs a container **recreate** (`up -d`).
 - Changing the baked `xdebug.mode` in the Dockerfile → needs a **rebuild**.
-- The on-config uses `start_with_request=yes`, so while ON every CLI/test process attempts a
-  9003 connection → slow suite. `run_tests()` prints a warning if the active ini is present;
-  run `./docker.sh xdebug off` before the suite.
+- Toggling the ini → `apache2ctl graceful` (the toggle does this). A stuck paused session
+  needs a **hard** `apache2ctl -k restart` to clear workers; graceful won't free them.
 
 Dev guide: `docs/development/xdebug-step-debugging.md` (PhpStorm + VS Code). Port 9003,
 path mapping repo-root ↔ `/var/www/html`.

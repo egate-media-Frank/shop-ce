@@ -43,7 +43,7 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
 
 RUN pecl install xdebug \
     && docker-php-ext-enable xdebug \
-    && echo "xdebug.mode=coverage,debug" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+    && echo "xdebug.mode=coverage" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
 
 # Node.js 20 LTS + global gulp-cli (o3-theme build pipeline) and grunt-cli
 # (wave-theme build pipeline). Themes ship their own local gulp/grunt versions

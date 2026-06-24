@@ -30,3 +30,4 @@ Shared memory for all Claude agents working in this repository. Read this first,
 - [!] [cs-fixer dirties nested clones](cs-fixer-pollutes-nested-clones.md) — ./docker.sh cs-fixer reformats testing-library/themes/demodata clones → aborts bin/release pre-flight; clean them before a cut
 - [!] [ExitHandler interface-guard bug](shop-ce-exithandler-interface-guard-bug.md) — bootstrap.php uses class_exists() on the ExitHandlerInterface (always false) → fresh-install Setup redirect dies in a DB-error loop; fix: interface_exists()
 - [tinymce-editor module](tinymce-editor-module.md) — admin WYSIWYG editor is a sibling repo; vendors TinyMCE in out/, no test suite; TinyMCE 7 upgrade notes (#194)
+- [!] [Xdebug step debugging](xdebug-step-debugging.md) — ./docker.sh xdebug on|off|status toggle; Colima needs extra_hosts host-gateway for host.docker.internal (the #82 blocker)

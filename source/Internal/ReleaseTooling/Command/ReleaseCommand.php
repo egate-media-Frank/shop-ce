@@ -302,12 +302,14 @@ class ReleaseCommand extends Command
     ): bool {
         $branchResolver = new DefaultBranchResolver();
         $packages = [];
+        // Mirrors LiveExecutor::openMergeBackPrs(): every tagged
+        // candidate plus the o3-shop project gets a merge-back PR.
         foreach ($plan->candidates() as $candidate) {
             if ($candidate->tagCut() !== null) {
                 $packages[] = $candidate->package();
             }
         }
-        $packages[] = ReleasePlanner::O3_SHOP_PROJECT;
+        $packages[] = LiveExecutor::O3_SHOP_PROJECT;
 
         $aborted = false;
         foreach ($packages as $package) {

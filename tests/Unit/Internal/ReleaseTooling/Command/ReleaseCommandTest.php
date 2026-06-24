@@ -26,10 +26,13 @@ use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Command\ReleaseCommand;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\DeleteBranchOnMergeGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\LiveExecutor;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\ProcessOutcome;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\CandidatePlan;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\DryRunPrinter;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlan;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlanner;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Snapshot\FromSnapshot;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Tag\TagCutResult;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Version\VersionResolution;
 use OxidEsales\EshopCommunity\Tests\Unit\Internal\ReleaseTooling\Flow\FakeProcessExecutor;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -577,6 +580,46 @@ class ReleaseCommandTest extends TestCase
         ]);
         $this->assertSame(ReleaseCommand::EXIT_PRE_FLIGHT_ABORT, $status);
         $this->assertStringContainsString('delete_branch_on_merge', $tester->getDisplay());
+        $this->assertCount(1, $exec->calls);
+    }
+
+    public function testFinalReleaseChecksTaggedCandidatesAndAbortsOnOne(): void
+    {
+        // A tagged candidate (tagCut() !== null) gets a merge-back PR, so
+        // the gate must run against it too — not just o3-shop/o3-shop.
+        $candidate = new CandidatePlan(
+            'o3-shop/some-module',
+            'v1.0.0',
+            'v1.0.1',
+            new VersionResolution('o3-shop/some-module', VersionResolution::CASE_USABLE_TAG, 'v1.0.1'),
+            new TagCutResult('v1.0.1', false, TagCutResult::SOURCE_FLAG)
+        );
+        $exec = new FakeProcessExecutor([
+            'gh api repos/o3-shop/some-module --jq .delete_branch_on_merge'
+                => new ProcessOutcome(0, "true\n", ''),
+            'gh api repos/o3-shop/o3-shop --jq .delete_branch_on_merge'
+                => new ProcessOutcome(0, "false\n", ''),
+        ]);
+        $gate = new DeleteBranchOnMergeGate($exec);
+        $stub = new StubReleasePlanner(new ReleasePlan(
+            'v1.6.1',
+            'v1.6.2',
+            new FromSnapshot([]),
+            [$candidate],
+            [],
+            '',
+            []
+        ));
+        $tester = new CommandTester(new ReleaseCommand($stub, null, null, $gate));
+        $status = $tester->execute([
+            '--from' => 'v1.6.1',
+            '--to' => 'v1.6.2',
+            '--dry-run' => true,
+        ]);
+        $this->assertSame(ReleaseCommand::EXIT_PRE_FLIGHT_ABORT, $status);
+        $this->assertStringContainsString('o3-shop/some-module', $tester->getDisplay());
+        // Both the tagged candidate and the o3-shop project were checked.
+        $this->assertCount(2, $exec->calls);
     }
 
     public function testPreReleaseSkipsDeleteBranchOnMergeCheck(): void

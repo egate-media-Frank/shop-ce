@@ -83,7 +83,7 @@ class DeleteBranchOnMergeGate implements PreFlightGate
         if ($value === 'true') {
             return GateOutcome::abort(self::NAME, [
                 sprintf(
-                    "%s has delete_branch_on_merge = true; merging the merge-back PR "
+                    '%s has delete_branch_on_merge = true; merging the merge-back PR '
                     . "would delete the release branch '%s'.",
                     $packageName,
                     $expectedBranch

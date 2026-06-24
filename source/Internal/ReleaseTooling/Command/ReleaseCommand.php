@@ -36,7 +36,6 @@ use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\UpToDateGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\WorkingTreeGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\LiveExecutor;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\MergeBackPolicy;
-use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlan;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\PerRepoActions;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\PreFlightRunner;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\RepoCloneUrlResolver;
@@ -48,6 +47,7 @@ use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Notes\GhCliReleaseNotesPro
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Notes\ReleaseNotesAggregator;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\DefaultBranchResolver;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\DryRunPrinter;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlan;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlanner;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Snapshot\FromSnapshotBuilder;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Tag\TagCutter;

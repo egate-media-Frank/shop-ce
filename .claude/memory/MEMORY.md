@@ -15,6 +15,7 @@ add sub-files as reference entries.
 Shared memory for all Claude agents working in this repository. Read this first, then open relevant files for detail.
 
 - [!] [Known Pitfalls](known-pitfalls.md) — bugs and mistakes already encountered in this repo
+- [Issue-audit traps (2026-06-25)](issue-audit-2026-06-25-traps.md) — board-says-done ≠ code-says-done; #123/#189 not resolved by their siblings; #81 premise stale; close candidates #28/#13/#134
 - [!] [Project Conventions](project-conventions.md) — PSR-12, DBAL patterns, namespace rules, Smarty usage
 - [!] [Graceful degradation over fail-fast](feedback_graceful-degradation.md) — user-facing flows must not break on missing templates / lang keys / assets — fall back, log, don't block
 - [!] [Form input must survive errors](feedback_form-input-preservation.md) — when a form submission is rejected, re-render with submitted values — never make the user re-type

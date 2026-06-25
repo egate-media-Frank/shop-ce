@@ -1,0 +1,243 @@
+<?php
+
+/**
+ * This file is part of O3-Shop.
+ *
+ * O3-Shop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * O3-Shop is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with O3-Shop.  If not, see <http://www.gnu.org/licenses/>
+ *
+ * @copyright  Copyright (c) 2026 O3-Shop (https://www.o3-shop.com)
+ * @license    https://www.gnu.org/licenses/gpl-3.0  GNU General Public License 3 (GPLv3)
+ */
+
+declare(strict_types=1);
+
+namespace OxidEsales\EshopCommunity\Tests\Unit\Application\Controller\Admin;
+
+use OxidEsales\Eshop\Core\Config;
+use OxidEsales\Eshop\Core\Registry;
+use OxidEsales\Eshop\Core\Request;
+use OxidEsales\EshopCommunity\Application\Controller\Admin\CaptchaConfigController;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration\CaptchaConfiguration;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration\CaptchaConfigurationInterface;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Form\CaptchaFormRegistry;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\CaptchaProviderLocator;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\GoogleReCaptchaV2Provider;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\GoogleReCaptchaV3Provider;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\NullCaptchaProvider;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Verifier\CaptchaVerifierInterface;
+use OxidEsales\TestingLibrary\UnitTestCase;
+use Psr\Container\ContainerInterface;
+use Psr\Log\NullLogger;
+
+/**
+ * Unit tests for {@see CaptchaConfigController}.
+ *
+ * Covers the template-facing accessors (provider list, active-provider
+ * fields, form ids, value getters) and the all-config-rows save behaviour,
+ * without bootstrapping the admin session. A hand-built PSR container holds
+ * the real CAPTCHA services so the accessors exercise production wiring; the
+ * active-provider id is supplied through a mocked
+ * {@see CaptchaConfigurationInterface} so no DB / oxconfig is needed.
+ */
+class CaptchaConfigControllerTest extends UnitTestCase
+{
+    /** @var array<string,mixed> */
+    private array $requestParams = [];
+
+    /** @var array<int,array{string,string,mixed,mixed,string}> tally of saveShopConfVar() calls */
+    private array $savedConfVars = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->requestParams = [];
+        $this->savedConfVars = [];
+        Registry::set('logger', new NullLogger());
+    }
+
+    public function testGetCaptchaProvidersListsSelectableProvidersWithoutTheNullProvider(): void
+    {
+        $controller = $this->makeController('');
+
+        $providers = $controller->getCaptchaProviders();
+
+        $this->assertArrayHasKey(GoogleReCaptchaV2Provider::ID, $providers);
+        $this->assertArrayHasKey(GoogleReCaptchaV3Provider::ID, $providers);
+        $this->assertArrayNotHasKey('', $providers, 'The Null provider must not be offered as a selectable option.');
+    }
+
+    public function testGetActiveProviderConfigFieldsReturnsTheActiveProvidersFields(): void
+    {
+        $controller = $this->makeController(GoogleReCaptchaV3Provider::ID);
+
+        $keys = array_map(
+            static fn ($field) => $field->getKey(),
+            $controller->getActiveProviderConfigFields()
+        );
+
+        $this->assertContains('scoreThreshold', $keys, 'The V3 provider exposes a scoreThreshold field.');
+    }
+
+    public function testGetActiveProviderConfigFieldsIsEmptyWhenNoProviderIsActive(): void
+    {
+        $controller = $this->makeController('');
+
+        $this->assertSame([], $controller->getActiveProviderConfigFields());
+    }
+
+    public function testGetCaptchaFormIdsReturnsAllRegisteredForms(): void
+    {
+        $controller = $this->makeController('');
+
+        $this->assertCount(7, $controller->getCaptchaFormIds());
+    }
+
+    public function testSavePersistsProviderConsentAndPerFormFlags(): void
+    {
+        $this->requestParams = [
+            CaptchaConfiguration::PROVIDER_KEY => GoogleReCaptchaV3Provider::ID,
+            CaptchaConfiguration::CONSENT_KEY => '1',
+            CaptchaConfiguration::FORM_PREFIX . 'contact' => '1',
+            'providerField_siteKey' => 'site-abc',
+            'providerField_secretKey' => 'secret-xyz',
+            'providerField_scoreThreshold' => '0.7',
+        ];
+        $this->mockConfigAndRequest();
+
+        $controller = $this->makeController(GoogleReCaptchaV3Provider::ID);
+        $controller->save();
+
+        $byName = $this->indexBy($this->savedConfVars, 1);
+
+        // Provider id + consent flag.
+        $this->assertSame(GoogleReCaptchaV3Provider::ID, $byName[CaptchaConfiguration::PROVIDER_KEY][2]);
+        $this->assertSame('1', $byName[CaptchaConfiguration::CONSENT_KEY][2]);
+
+        // All seven per-form flags get written; the checked one is '1'.
+        $this->assertSame('1', $byName[CaptchaConfiguration::FORM_PREFIX . 'contact'][2]);
+        $this->assertSame('', $byName[CaptchaConfiguration::FORM_PREFIX . 'newsletter'][2]);
+
+        // Per-provider settings are namespaced by provider id.
+        $threshold = CaptchaConfiguration::PROVIDER_SETTING_PREFIX . GoogleReCaptchaV3Provider::ID . '_scoreThreshold';
+        $this->assertSame('0.7', $byName[$threshold][2]);
+
+        // Everything is written under the dedicated config section.
+        foreach ($this->savedConfVars as $call) {
+            $this->assertSame('module:captcha', $call[4]);
+        }
+    }
+
+    public function testSaveSkipsProviderSettingsWhenNoProviderIsSelected(): void
+    {
+        $this->requestParams = [
+            CaptchaConfiguration::PROVIDER_KEY => '',
+        ];
+        $this->mockConfigAndRequest();
+
+        $controller = $this->makeController('');
+        $controller->save();
+
+        $byName = $this->indexBy($this->savedConfVars, 1);
+        $this->assertSame('', $byName[CaptchaConfiguration::PROVIDER_KEY][2]);
+        // No `sCaptcha_*` provider-setting rows when there is no active provider.
+        $settingRows = array_filter(
+            $this->savedConfVars,
+            static fn ($call) => strpos($call[1], CaptchaConfiguration::PROVIDER_SETTING_PREFIX) === 0
+        );
+        $this->assertSame([], $settingRows);
+    }
+
+    /**
+     * Build a controller whose container holds the real CAPTCHA services and
+     * whose active-provider id is fixed via a mocked configuration.
+     */
+    private function makeController(string $activeProviderId): CaptchaConfigController
+    {
+        $configuration = $this->createMock(CaptchaConfigurationInterface::class);
+        $configuration->method('getActiveProviderId')->willReturn($activeProviderId);
+        $configuration->method('isFormEnabled')->willReturn(false);
+        $configuration->method('isConsentRequired')->willReturn(true);
+        $configuration->method('getProviderSetting')->willReturn('');
+
+        $verifier = $this->createMock(CaptchaVerifierInterface::class);
+        $locator = new CaptchaProviderLocator(
+            [
+                new GoogleReCaptchaV2Provider($configuration, $verifier),
+                new GoogleReCaptchaV3Provider($configuration, $verifier),
+            ],
+            new NullCaptchaProvider()
+        );
+
+        $services = [
+            CaptchaProviderLocator::class => $locator,
+            CaptchaConfigurationInterface::class => $configuration,
+            CaptchaFormRegistry::class => new CaptchaFormRegistry(),
+        ];
+
+        $container = new class ($services) implements ContainerInterface {
+            /** @var array<string,object> */
+            private array $services;
+
+            public function __construct(array $services)
+            {
+                $this->services = $services;
+            }
+
+            public function get($id)
+            {
+                return $this->services[$id];
+            }
+
+            public function has($id): bool
+            {
+                return isset($this->services[$id]);
+            }
+        };
+
+        $controller = (new \ReflectionClass(CaptchaConfigController::class))->newInstanceWithoutConstructor();
+        $controller->setContainer($container);
+
+        return $controller;
+    }
+
+    private function mockConfigAndRequest(): void
+    {
+        $request = $this->createMock(Request::class);
+        $request->method('getRequestEscapedParameter')->willReturnCallback(
+            fn ($name, $default = null) => $this->requestParams[$name] ?? $default
+        );
+        Registry::set(Request::class, $request);
+
+        $config = $this->createMock(Config::class);
+        $config->method('getShopId')->willReturn(1);
+        $config->method('saveShopConfVar')->willReturnCallback(
+            function ($type, $name, $value, $shopId = null, $module = '') {
+                $this->savedConfVars[] = [(string) $type, (string) $name, $value, $shopId, (string) $module];
+            }
+        );
+        Registry::set(Config::class, $config);
+    }
+
+    /**
+     * @param array<int,array> $rows
+     * @return array<string,array>
+     */
+    private function indexBy(array $rows, int $columnIndex): array
+    {
+        $indexed = [];
+        foreach ($rows as $row) {
+            $indexed[$row[$columnIndex]] = $row;
+        }
+
+        return $indexed;
+    }
+}

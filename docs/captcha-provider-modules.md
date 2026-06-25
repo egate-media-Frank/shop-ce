@@ -2,7 +2,9 @@
 
 ## Overview
 
-O3-Shop ships a pluggable CAPTCHA layer. Two built-in providers — Google reCAPTCHA v2 and v3 — are included in the core, but any module can add its own provider without touching core code. The admin can then select the new provider from a dropdown and configure its credentials through the standard admin interface.
+O3-Shop ships a pluggable CAPTCHA layer **in core**: the provider seam (`CaptchaProviderInterface`), the provider locator + service, the admin configuration screen, the storefront form hooks, and a no-op `NullCaptchaProvider`. Core deliberately ships **no** concrete third-party provider, so it carries no external CAPTCHA dependency and stays PHP 7.4-compatible.
+
+Providers themselves ship as **modules**. Google reCAPTCHA v2 and v3 are provided by the separate **`o3-shop/recaptcha-module`** (PHP 8.0+, because it depends on `google/recaptcha`) — the reference implementation of this guide. Any module can add its own provider without touching core; the admin then selects it from a dropdown and configures its credentials through the standard admin interface.
 
 The extension point is `CaptchaProviderInterface`. Implement it, register the service with the `oxid.captcha.provider` tag, and the rest happens automatically.
 
@@ -153,7 +155,7 @@ Note: inject `CaptchaConfigurationInterface` (not `Registry::getConfig()`) to re
 
 ## Register via `services.yaml`
 
-In your module, create (or extend) `metadata/services.yaml` and tag the provider service:
+In your module, create a `services.yaml` **at the module root** — `<moduleRoot>/services.yaml`. This is the only path module activation loads (see `ModuleServicesActivationService::getModuleServicesFilePath()`); a file anywhere else (e.g. `metadata/services.yaml`) is silently ignored and your provider tag is never collected. Tag the provider service:
 
 ```yaml
 services:
@@ -168,6 +170,23 @@ services:
 `autowire: true` means Symfony will inject `CaptchaConfigurationInterface` (and any other typed constructor dependencies) automatically. The service itself stays private; the tag is the only registration needed.
 
 When the module is activated, `CaptchaProviderLocator` collects all services tagged `oxid.captcha.provider` and makes them available to the core. Your provider will appear in the admin CAPTCHA provider dropdown immediately — no further wiring required.
+
+### Declaring dependencies (and PHP version)
+
+If your provider needs a third-party library, declare it — and any matching `php` constraint — in your module's `composer.json` `require`, **not** in core. This is the whole reason providers are modules: it keeps core dependency-light and PHP 7.4-compatible. The reference `o3-shop/recaptcha-module` does exactly this:
+
+```json
+{
+    "name": "o3-shop/recaptcha-module",
+    "type": "oxideshop-module",
+    "require": {
+        "php": ">=8.0",
+        "google/recaptcha": "^1.3"
+    }
+}
+```
+
+`google/recaptcha` requires PHP 8.0+, so the module declares `php: ">=8.0"`; shops on PHP 7.4 simply can't install/activate it, while core itself stays 7.4-clean.
 
 ---
 
@@ -185,7 +204,7 @@ For the example above, field `siteKey` of provider `acme_captcha` is stored as `
 
 ### Language identifiers
 
-Supply translations in your module's admin lang file (e.g. `Application/translations/en/acme_captcha_lang.php`):
+The provider title and field labels appear in the **admin** screen, so supply them in your module's admin lang file at `Application/views/admin/<lang>/module_options.php` — the path OXID loads for module admin idents (see `Core/Language.php`):
 
 ```php
 $aLang = [

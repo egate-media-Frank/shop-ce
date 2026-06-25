@@ -1931,4 +1931,22 @@ $aLang = [
     'usrRegistered' => 'The user will be registered after entering his password.',
     'viewAll' => 'Show all',
     'weight' => 'Weight',
+
+    // Core CAPTCHA provider configuration (issue #213)
+    'mxo3captcha' => 'CAPTCHA',
+    'tbclo3captcha_config' => 'Settings',
+    'O3_CAPTCHA_PROVIDER_NONE' => 'None (disabled)',
+    'O3_CAPTCHA_PROVIDER_GOOGLE_V2' => 'Google reCAPTCHA v2 (checkbox)',
+    'O3_CAPTCHA_PROVIDER_GOOGLE_V3' => 'Google reCAPTCHA v3 (invisible/score)',
+    'O3_CAPTCHA_SITE_KEY' => 'Site key',
+    'O3_CAPTCHA_SECRET_KEY' => 'Secret key',
+    'O3_CAPTCHA_SCORE_THRESHOLD' => 'Minimum score to pass (0.0–1.0)',
+    'O3_CAPTCHA_REQUIRE_CONSENT' => 'Require visitor consent before loading',
+    'O3_CAPTCHA_FORM_contact' => 'Contact form',
+    'O3_CAPTCHA_FORM_newsletter' => 'Newsletter form',
+    'O3_CAPTCHA_FORM_suggest' => 'Recommend-a-product form',
+    'O3_CAPTCHA_FORM_forgotpwd' => 'Forgot-password form',
+    'O3_CAPTCHA_FORM_register' => 'Registration form',
+    'O3_CAPTCHA_FORM_pricealarm' => 'Price-alarm form',
+    'O3_CAPTCHA_FORM_invite' => 'Invite-a-friend form',
 ];

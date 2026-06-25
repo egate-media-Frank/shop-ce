@@ -5,20 +5,11 @@ services:
 
     OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\NullCaptchaProvider: ~
 
-    OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\GoogleReCaptchaV2Provider:
-        tags: ['oxid.captcha.provider']
-
-    OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\GoogleReCaptchaV3Provider:
-        tags: ['oxid.captcha.provider']
-
     OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\CaptchaProviderLocator:
         public: true
         arguments:
             $providers: !tagged oxid.captcha.provider
             $nullProvider: '@OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\NullCaptchaProvider'
-
-    OxidEsales\EshopCommunity\Internal\Domain\Captcha\Verifier\CaptchaVerifierInterface:
-        class: OxidEsales\EshopCommunity\Internal\Domain\Captcha\Verifier\GoogleReCaptchaVerifier
 
     OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration\CaptchaConfigurationInterface:
         class: OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration\CaptchaConfiguration

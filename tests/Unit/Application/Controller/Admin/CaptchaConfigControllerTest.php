@@ -28,12 +28,11 @@ use OxidEsales\Eshop\Core\Request;
 use OxidEsales\EshopCommunity\Application\Controller\Admin\CaptchaConfigController;
 use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration\CaptchaConfiguration;
 use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration\CaptchaConfigurationInterface;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Field\CaptchaConfigField;
 use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Form\CaptchaFormRegistry;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\CaptchaProviderInterface;
 use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\CaptchaProviderLocator;
-use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\GoogleReCaptchaV2Provider;
-use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\GoogleReCaptchaV3Provider;
 use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\NullCaptchaProvider;
-use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Verifier\CaptchaVerifierInterface;
 use OxidEsales\TestingLibrary\UnitTestCase;
 use Psr\Container\ContainerInterface;
 use Psr\Log\NullLogger;
@@ -50,6 +49,14 @@ use Psr\Log\NullLogger;
  */
 class CaptchaConfigControllerTest extends UnitTestCase
 {
+    /**
+     * Id of the stub provider injected into the locator. Core no longer ships
+     * any real provider (Google reCAPTCHA moved to a separate module), so the
+     * tests register a fake one through the same tagged-services seam a module
+     * would use.
+     */
+    private const FAKE_PROVIDER_ID = 'fake';
+
     /** @var array<string,mixed> */
     private array $requestParams = [];
 
@@ -70,21 +77,20 @@ class CaptchaConfigControllerTest extends UnitTestCase
 
         $providers = $controller->getCaptchaProviders();
 
-        $this->assertArrayHasKey(GoogleReCaptchaV2Provider::ID, $providers);
-        $this->assertArrayHasKey(GoogleReCaptchaV3Provider::ID, $providers);
+        $this->assertArrayHasKey(self::FAKE_PROVIDER_ID, $providers);
         $this->assertArrayNotHasKey('', $providers, 'The Null provider must not be offered as a selectable option.');
     }
 
     public function testGetActiveProviderConfigFieldsReturnsTheActiveProvidersFields(): void
     {
-        $controller = $this->makeController(GoogleReCaptchaV3Provider::ID);
+        $controller = $this->makeController(self::FAKE_PROVIDER_ID);
 
         $keys = array_map(
             static fn ($field) => $field->getKey(),
             $controller->getActiveProviderConfigFields()
         );
 
-        $this->assertContains('scoreThreshold', $keys, 'The V3 provider exposes a scoreThreshold field.');
+        $this->assertContains('scoreThreshold', $keys, 'The active provider surfaces its config fields.');
     }
 
     public function testGetActiveProviderConfigFieldsIsEmptyWhenNoProviderIsActive(): void
@@ -104,22 +110,20 @@ class CaptchaConfigControllerTest extends UnitTestCase
     public function testSavePersistsProviderConsentAndPerFormFlags(): void
     {
         $this->requestParams = [
-            CaptchaConfiguration::PROVIDER_KEY => GoogleReCaptchaV3Provider::ID,
+            CaptchaConfiguration::PROVIDER_KEY => self::FAKE_PROVIDER_ID,
             CaptchaConfiguration::CONSENT_KEY => '1',
             CaptchaConfiguration::FORM_PREFIX . 'contact' => '1',
-            'providerField_siteKey' => 'site-abc',
-            'providerField_secretKey' => 'secret-xyz',
             'providerField_scoreThreshold' => '0.7',
         ];
         $this->mockConfigAndRequest();
 
-        $controller = $this->makeController(GoogleReCaptchaV3Provider::ID);
+        $controller = $this->makeController(self::FAKE_PROVIDER_ID);
         $controller->save();
 
         $byName = $this->indexBy($this->savedConfVars, 1);
 
         // Provider id + consent flag.
-        $this->assertSame(GoogleReCaptchaV3Provider::ID, $byName[CaptchaConfiguration::PROVIDER_KEY][2]);
+        $this->assertSame(self::FAKE_PROVIDER_ID, $byName[CaptchaConfiguration::PROVIDER_KEY][2]);
         $this->assertSame('1', $byName[CaptchaConfiguration::CONSENT_KEY][2]);
 
         // All seven per-form flags get written; the checked one is '1'.
@@ -127,7 +131,7 @@ class CaptchaConfigControllerTest extends UnitTestCase
         $this->assertSame('', $byName[CaptchaConfiguration::FORM_PREFIX . 'newsletter'][2]);
 
         // Per-provider settings are namespaced by provider id.
-        $threshold = CaptchaConfiguration::PROVIDER_SETTING_PREFIX . GoogleReCaptchaV3Provider::ID . '_scoreThreshold';
+        $threshold = CaptchaConfiguration::PROVIDER_SETTING_PREFIX . self::FAKE_PROVIDER_ID . '_scoreThreshold';
         $this->assertSame('0.7', $byName[$threshold][2]);
 
         // Everything is written under the dedicated config section.
@@ -168,12 +172,8 @@ class CaptchaConfigControllerTest extends UnitTestCase
         $configuration->method('isConsentRequired')->willReturn(true);
         $configuration->method('getProviderSetting')->willReturn('');
 
-        $verifier = $this->createMock(CaptchaVerifierInterface::class);
         $locator = new CaptchaProviderLocator(
-            [
-                new GoogleReCaptchaV2Provider($configuration, $verifier),
-                new GoogleReCaptchaV3Provider($configuration, $verifier),
-            ],
+            [$this->fakeProvider()],
             new NullCaptchaProvider()
         );
 
@@ -207,6 +207,53 @@ class CaptchaConfigControllerTest extends UnitTestCase
         $controller->setContainer($container);
 
         return $controller;
+    }
+
+    /**
+     * A minimal stand-in for a CAPTCHA provider that a module would register.
+     * Exposes a single `scoreThreshold` config field so the active-provider
+     * field accessor has something to surface.
+     */
+    private function fakeProvider(): CaptchaProviderInterface
+    {
+        return new class () implements CaptchaProviderInterface {
+            public function getId(): string
+            {
+                // Must match CaptchaConfigControllerTest::FAKE_PROVIDER_ID; a
+                // nested anonymous class cannot read the outer private constant.
+                return 'fake';
+            }
+
+            public function getTitle(): string
+            {
+                return 'Fake provider';
+            }
+
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function getConfigFields(): array
+            {
+                return [new CaptchaConfigField('scoreThreshold', 'O3_CAPTCHA_SCORE_THRESHOLD', CaptchaConfigField::TYPE_NUMBER, '0.5')];
+            }
+
+            public function getHeadScript(): ?string
+            {
+                return null;
+            }
+
+            public function renderWidget(string $formId): string
+            {
+                return '';
+            }
+
+            public function verify(Request $request, string $formId): bool
+            {
+                return true;
+            }
+        };
     }
 
     private function mockConfigAndRequest(): void

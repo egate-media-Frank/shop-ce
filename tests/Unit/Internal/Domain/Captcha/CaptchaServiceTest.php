@@ -85,6 +85,7 @@ class CaptchaServiceTest extends TestCase
     {
         $svc = $this->service($this->provider('p'), ['consent' => false]);
         $html = $svc->renderForForm('contact');
+        $this->assertStringContainsString('o3-captcha-consent-notice', $html);
         $this->assertStringNotContainsString('id="widget"', $html);
         $this->assertTrue($svc->verifyForForm('contact', $this->createMock(Request::class)));
     }

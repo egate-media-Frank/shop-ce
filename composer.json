@@ -44,7 +44,8 @@
         "o3-shop/shop-demodata-installer": "^v1.0.0",
         "o3-shop/shop-composer-plugin": "^v1.2.0",
         "o3-shop/shop-unified-namespace-generator": "^v1.0.0",
-        "o3-shop/shop-facts": "^v1.0.0"
+        "o3-shop/shop-facts": "^v1.0.0",
+        "google/recaptcha": "^1.3"
     },
     "require-dev": {
         "o3-shop/testing-library": "^v1.2.0",

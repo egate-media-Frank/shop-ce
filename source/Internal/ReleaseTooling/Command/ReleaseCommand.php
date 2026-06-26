@@ -28,12 +28,14 @@ use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Constraint\ConstraintUpdat
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\ComposerJsonConstraintWriter;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\BranchGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\ComposerInstallGate;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\DeleteBranchOnMergeGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\IncomingPrGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\MergeBackPrGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\TestSuiteGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\UpToDateGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\Gates\WorkingTreeGate;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\LiveExecutor;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\MergeBackPolicy;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\PerRepoActions;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\PreFlightRunner;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Flow\RepoCloneUrlResolver;
@@ -45,6 +47,7 @@ use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Notes\GhCliReleaseNotesPro
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Notes\ReleaseNotesAggregator;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\DefaultBranchResolver;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\DryRunPrinter;
+use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlan;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Planning\ReleasePlanner;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Snapshot\FromSnapshotBuilder;
 use OxidEsales\EshopCommunity\Internal\ReleaseTooling\Tag\TagCutter;
@@ -96,20 +99,23 @@ class ReleaseCommand extends Command
     private ?ReleasePlanner $planner;
     private DryRunPrinter $printer;
     private ?LiveExecutor $liveExecutor;
+    private ?DeleteBranchOnMergeGate $deleteBranchGate;
 
     /**
-     * All three arguments are optional so production invocations build
+     * All arguments are optional so production invocations build
      * defaults inline; tests inject fakes via the constructor.
      */
     public function __construct(
         ?ReleasePlanner $planner = null,
         ?DryRunPrinter $printer = null,
-        ?LiveExecutor $liveExecutor = null
+        ?LiveExecutor $liveExecutor = null,
+        ?DeleteBranchOnMergeGate $deleteBranchGate = null
     ) {
         parent::__construct();
         $this->planner = $planner;
         $this->printer = $printer ?? new DryRunPrinter();
         $this->liveExecutor = $liveExecutor;
+        $this->deleteBranchGate = $deleteBranchGate;
     }
 
     protected function configure(): void
@@ -252,6 +258,20 @@ class ReleaseCommand extends Command
             return self::EXIT_PRE_FLIGHT_ABORT;
         }
 
+        // Merge-back deletion guard (#190): final releases open a
+        // merge-back PR whose head IS the release branch. If any target
+        // repo auto-deletes head branches on merge, that merge deletes
+        // the release line. Verify it is off — fail closed. Runs in
+        // dry-run too (remote-only/read-only), so a dry-run previews
+        // whether the real release would be blocked.
+        if (MergeBackPolicy::shouldOpenForShopTo($to)) {
+            $gate = $this->deleteBranchGate
+                ?? new DeleteBranchOnMergeGate(new SymfonyProcessExecutor());
+            if (!$this->verifyDeleteBranchOnMerge($gate, $plan, $output)) {
+                return self::EXIT_PRE_FLIGHT_ABORT;
+            }
+        }
+
         if ($dryRun) {
             $output->writeln('<info>Dry-run complete. No state-changing actions performed.</info>');
             return self::EXIT_OK;
@@ -267,6 +287,52 @@ class ReleaseCommand extends Command
         }
         $this->printFinishChecklist($executor, $output);
         return self::EXIT_OK;
+    }
+
+    /**
+     * Runs the delete_branch_on_merge gate over every repo that will
+     * receive a merge-back PR (tagged candidates + the o3-shop project).
+     * Returns true when all pass; prints diagnostics and returns false
+     * when any aborts.
+     */
+    private function verifyDeleteBranchOnMerge(
+        DeleteBranchOnMergeGate $gate,
+        ReleasePlan $plan,
+        OutputInterface $output
+    ): bool {
+        /** @var callable(string):string $branchResolver */
+        $branchResolver = new DefaultBranchResolver();
+        $packages = [];
+        // Mirrors LiveExecutor::openMergeBackPrs(): every tagged
+        // candidate plus the o3-shop project gets a merge-back PR.
+        foreach ($plan->candidates() as $candidate) {
+            if ($candidate->tagCut() !== null) {
+                $packages[] = $candidate->package();
+            }
+        }
+        $packages[] = LiveExecutor::O3_SHOP_PROJECT;
+
+        $output->writeln(sprintf(
+            'Pre-flight: verifying delete_branch_on_merge is disabled on %d merge-back repo(s)',
+            count($packages)
+        ));
+
+        $aborted = false;
+        foreach ($packages as $package) {
+            $outcome = $gate->evaluate('', $branchResolver($package), $package);
+            if ($outcome->aborts()) {
+                $aborted = true;
+                foreach ($outcome->messages() as $message) {
+                    $output->writeln(sprintf('<error>[%s] %s</error>', $gate->name(), $message));
+                }
+                continue;
+            }
+            $output->writeln(sprintf('  %s: ok', $package));
+        }
+        if (!$aborted) {
+            $output->writeln('  All merge-back repos have head-branch auto-delete disabled.');
+        }
+        return !$aborted;
     }
 
     /**

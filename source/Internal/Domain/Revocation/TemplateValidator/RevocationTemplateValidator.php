@@ -170,12 +170,18 @@ class RevocationTemplateValidator
     {
         $missing = [];
 
-        $themeRoot = $this->resolveThemeRoot($themeId);
+        // Theme roots ordered child-first, then up the `parentTheme` chain.
+        // A template is "present" if it exists in the child OR any ancestor —
+        // mirroring how Smarty's theme resolver inherits templates at render
+        // time. The child root is where we point operators to install anything
+        // that is genuinely absent from the whole chain.
+        $themeRoots = $this->resolveThemeRoots($themeId);
+        $childRoot = $themeRoots[0];
 
         // Page templates — not language-scoped.
         foreach (self::PAGE_TEMPLATE_RELPATHS as $relpath) {
-            $absolute = $themeRoot . $relpath;
-            if (!is_file($absolute)) {
+            if (!$this->templateExistsInChain($themeRoots, $relpath)) {
+                $absolute = $childRoot . $relpath;
                 $missing[] = new MissingAsset(
                     MissingAsset::TYPE_PAGE_TEMPLATE,
                     $absolute,
@@ -188,8 +194,8 @@ class RevocationTemplateValidator
         // Email templates — one set per theme; language-specific text comes
         // from `{oxmultilang}` calls inside the template (OXID convention).
         foreach (array_merge(self::EMAIL_BODY_RELPATHS, self::EMAIL_SUBJECT_RELPATHS) as $relpath) {
-            $absolute = $themeRoot . $relpath;
-            if (!is_file($absolute)) {
+            if (!$this->templateExistsInChain($themeRoots, $relpath)) {
+                $absolute = $childRoot . $relpath;
                 $missing[] = new MissingAsset(
                     MissingAsset::TYPE_EMAIL_TEMPLATE,
                     $absolute,
@@ -221,6 +227,67 @@ class RevocationTemplateValidator
     {
         $base = rtrim($this->getShopDir(), '/');
         return $base . '/Application/views/' . $themeId . '/';
+    }
+
+    /**
+     * Resolve the active theme plus its `parentTheme` ancestors as a
+     * child-first list of absolute theme-root paths.
+     *
+     * Resolved purely from the filesystem (each theme's `theme.php`,
+     * mirroring {@see \OxidEsales\Eshop\Core\Theme::load()}) so the
+     * validator stays DB/Registry-free and usable during console
+     * bootstrap. A cycle guard prevents a misconfigured chain from
+     * looping forever.
+     *
+     * @return string[] absolute, trailing-slash theme roots, child first
+     */
+    private function resolveThemeRoots(string $themeId): array
+    {
+        $roots = [];
+        $seen = [];
+        $current = $themeId;
+
+        while ($current !== '' && !isset($seen[$current])) {
+            $seen[$current] = true;
+            $roots[] = $this->resolveThemeRoot($current);
+            $current = (string) $this->getParentThemeId($current);
+        }
+
+        return $roots;
+    }
+
+    /**
+     * Read a theme's declared `parentTheme` from its `theme.php`, or null
+     * when the theme has no parent (or no readable `theme.php`).
+     */
+    private function getParentThemeId(string $themeId): ?string
+    {
+        $themeFile = $this->resolveThemeRoot($themeId) . 'theme.php';
+        if (!is_file($themeFile) || !is_readable($themeFile)) {
+            return null;
+        }
+
+        $aTheme = [];
+        include $themeFile;
+
+        $parent = $aTheme['parentTheme'] ?? null;
+        return is_string($parent) && $parent !== '' ? $parent : null;
+    }
+
+    /**
+     * A template counts as present when it exists in the child theme or
+     * anywhere up the inheritance chain.
+     *
+     * @param string[] $themeRoots child-first list of theme roots
+     */
+    private function templateExistsInChain(array $themeRoots, string $relpath): bool
+    {
+        foreach ($themeRoots as $themeRoot) {
+            if (is_file($themeRoot . $relpath)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function translationExists(string $key, int $langId): bool

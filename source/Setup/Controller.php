@@ -640,6 +640,8 @@ class Controller extends Core
 
                 $this->getUtilitiesInstance()->executeExternalDatabaseMigrationCommand();
             }
+
+            $this->getUtilitiesInstance()->executeExternalThemeActivateCommand();
         } catch (Exception $exception) {
             $commandException = new CommandExecutionFailedException('Migration', $exception->getCode(), $exception);
             $commandException->setCommandOutput([$exception->getMessage()]);

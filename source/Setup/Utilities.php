@@ -497,6 +497,27 @@ class Utilities extends Core
     }
 
     /**
+     * Calls the external oe:theme:activate console command to activate the
+     * theme declared by the just-imported configuration (sCustomTheme||sTheme).
+     * Failure is logged to the command output but does not abort setup.
+     *
+     * @param Facts|null $facts A possible facts mock
+     *
+     * @return int Exit code of the activation command.
+     */
+    public function executeExternalThemeActivateCommand(Facts $facts = null)
+    {
+        $facts = $facts ?: new Facts();
+        $console = $facts->getSourcePath() . '/../bin/oe-console';
+
+        $output = [];
+        $returnCode = 0;
+        exec('php ' . escapeshellarg($console) . ' oe:theme:activate 2>&1', $output, $returnCode);
+
+        return $returnCode;
+    }
+
+    /**
      * Calls external demodata assets install command.
      *
      * @return int Error code of the install command.

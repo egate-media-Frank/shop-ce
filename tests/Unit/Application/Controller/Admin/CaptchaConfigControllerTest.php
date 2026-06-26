@@ -81,23 +81,27 @@ class CaptchaConfigControllerTest extends UnitTestCase
         $this->assertArrayNotHasKey('', $providers, 'The Null provider must not be offered as a selectable option.');
     }
 
-    public function testGetActiveProviderConfigFieldsReturnsTheActiveProvidersFields(): void
+    public function testGetAllProviderConfigFieldsAreKeyedByProviderId(): void
+    {
+        // Fields for every selectable provider are rendered (hidden) so the
+        // operator can switch provider and fill credentials in one save.
+        $controller = $this->makeController('');
+
+        $all = $controller->getAllProviderConfigFields();
+
+        $this->assertArrayHasKey(self::FAKE_PROVIDER_ID, $all);
+        $this->assertArrayNotHasKey('', $all, 'The Null provider exposes no selectable config fields.');
+
+        $keys = array_map(static fn ($field) => $field->getKey(), $all[self::FAKE_PROVIDER_ID]);
+        $this->assertContains('scoreThreshold', $keys, 'Each provider surfaces its declared config fields.');
+    }
+
+    public function testGetProviderSettingValueForDelegatesPerProvider(): void
     {
         $controller = $this->makeController(self::FAKE_PROVIDER_ID);
 
-        $keys = array_map(
-            static fn ($field) => $field->getKey(),
-            $controller->getActiveProviderConfigFields()
-        );
-
-        $this->assertContains('scoreThreshold', $keys, 'The active provider surfaces its config fields.');
-    }
-
-    public function testGetActiveProviderConfigFieldsIsEmptyWhenNoProviderIsActive(): void
-    {
-        $controller = $this->makeController('');
-
-        $this->assertSame([], $controller->getActiveProviderConfigFields());
+        // The mocked configuration returns '' for any provider/key lookup.
+        $this->assertSame('', $controller->getProviderSettingValueFor(self::FAKE_PROVIDER_ID, 'scoreThreshold'));
     }
 
     public function testGetCaptchaFormIdsReturnsAllRegisteredForms(): void
@@ -113,7 +117,7 @@ class CaptchaConfigControllerTest extends UnitTestCase
             CaptchaConfiguration::PROVIDER_KEY => self::FAKE_PROVIDER_ID,
             CaptchaConfiguration::CONSENT_KEY => '1',
             CaptchaConfiguration::FORM_PREFIX . 'contact' => '1',
-            'providerField_scoreThreshold' => '0.7',
+            'providerField_fake_scoreThreshold' => '0.7',
         ];
         $this->mockConfigAndRequest();
 

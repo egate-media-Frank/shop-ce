@@ -22,30 +22,30 @@
             </select>
         </p>
 
-        [{foreach from=$oView->getActiveProviderConfigFields() item="field"}]
-            [{assign var="ftype" value=$field->getType()}]
-            <p>
-                <label for="providerField_[{$field->getKey()}]">
-                    [{oxmultilang ident=$field->getLabelIdent()}]
-                </label>
-                [{if $ftype == "password"}]
-                    <input type="password"
-                           id="providerField_[{$field->getKey()}]"
-                           name="providerField_[{$field->getKey()}]"
-                           value="[{$oView->getProviderSettingValue($field->getKey())|escape:'html'}]">
-                [{elseif $ftype == "number"}]
-                    <input type="number"
-                           step="0.1" min="0" max="1"
-                           id="providerField_[{$field->getKey()}]"
-                           name="providerField_[{$field->getKey()}]"
-                           value="[{$oView->getProviderSettingValue($field->getKey())|escape:'html'}]">
-                [{else}]
-                    <input type="text"
-                           id="providerField_[{$field->getKey()}]"
-                           name="providerField_[{$field->getKey()}]"
-                           value="[{$oView->getProviderSettingValue($field->getKey())|escape:'html'}]">
-                [{/if}]
-            </p>
+        [{* One (hidden) field group per provider; JS reveals the selected one — no save needed to show fields. *}]
+        [{foreach from=$oView->getAllProviderConfigFields() key="provId" item="fields"}]
+            <div class="o3-captcha-provider-fields" data-provider="[{$provId}]"
+                 [{if $provId != $oView->getActiveProviderId()}]style="display:none;"[{/if}]>
+                [{foreach from=$fields item="field"}]
+                    [{assign var="ftype" value=$field->getType()}]
+                    [{assign var="fname" value="providerField_"|cat:$provId|cat:"_"|cat:$field->getKey()}]
+                    <p>
+                        <label for="[{$fname}]">
+                            [{oxmultilang ident=$field->getLabelIdent()}]
+                        </label>
+                        [{if $ftype == "password"}]
+                            <input type="password" id="[{$fname}]" name="[{$fname}]"
+                                   value="[{$oView->getProviderSettingValueFor($provId, $field->getKey())|escape:'html'}]">
+                        [{elseif $ftype == "number"}]
+                            <input type="number" step="0.1" min="0" max="1" id="[{$fname}]" name="[{$fname}]"
+                                   value="[{$oView->getProviderSettingValueFor($provId, $field->getKey())|escape:'html'}]">
+                        [{else}]
+                            <input type="text" id="[{$fname}]" name="[{$fname}]"
+                                   value="[{$oView->getProviderSettingValueFor($provId, $field->getKey())|escape:'html'}]">
+                        [{/if}]
+                    </p>
+                [{/foreach}]
+            </div>
         [{/foreach}]
 
         <p>
@@ -74,6 +74,26 @@
             <input type="submit" value="[{oxmultilang ident="GENERAL_SAVE"}]" class="edittext">
         </p>
     </fieldset>
+
+    [{* Reveal only the selected provider's credential fields; switching the dropdown
+       swaps them in without a save. *}]
+    <script type="text/javascript">
+        (function () {
+            var providerSelect = document.getElementById('sCaptchaProvider');
+            if (!providerSelect) {
+                return;
+            }
+            function syncProviderFields() {
+                var groups = document.querySelectorAll('.o3-captcha-provider-fields');
+                for (var i = 0; i < groups.length; i++) {
+                    groups[i].style.display =
+                        (groups[i].getAttribute('data-provider') === providerSelect.value) ? '' : 'none';
+                }
+            }
+            providerSelect.addEventListener('change', syncProviderFields);
+            syncProviderFields();
+        })();
+    </script>
 </form>
 
 [{include file="bottomnaviitem.tpl"}]

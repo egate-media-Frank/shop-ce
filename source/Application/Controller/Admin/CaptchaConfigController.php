@@ -93,11 +93,26 @@ class CaptchaConfigController extends AdminDetailsController
     }
 
     /**
-     * @return CaptchaConfigField[] the active provider's declared config fields
+     * Config fields for every selectable provider, keyed by provider id.
+     *
+     * The template renders one (hidden) field group per provider and reveals
+     * the selected provider's group client-side, so the operator can switch
+     * provider and fill in its credentials in a single save — no intermediate
+     * "save to reveal the fields" step.
+     *
+     * @return array<string,CaptchaConfigField[]> providerId => declared config fields
      */
-    public function getActiveProviderConfigFields(): array
+    public function getAllProviderConfigFields(): array
     {
-        return $this->locator()->getById($this->getActiveProviderId())->getConfigFields();
+        $out = [];
+        foreach ($this->locator()->getAll() as $id => $provider) {
+            if ($id === '') {
+                continue;
+            }
+            $out[$id] = $provider->getConfigFields();
+        }
+
+        return $out;
     }
 
     /**
@@ -108,9 +123,9 @@ class CaptchaConfigController extends AdminDetailsController
         return $this->container()->get(CaptchaFormRegistry::class)->getFormIds();
     }
 
-    public function getProviderSettingValue(string $key): string
+    public function getProviderSettingValueFor(string $providerId, string $key): string
     {
-        return (string) $this->configuration()->getProviderSetting($this->getActiveProviderId(), $key, '');
+        return (string) $this->configuration()->getProviderSetting($providerId, $key, '');
     }
 
     public function isFormEnabled(string $formId): bool
@@ -160,7 +175,9 @@ class CaptchaConfigController extends AdminDetailsController
                 $config->saveShopConfVar(
                     'str',
                     $name,
-                    (string) $request->getRequestEscapedParameter('providerField_' . $field->getKey()),
+                    (string) $request->getRequestEscapedParameter(
+                        'providerField_' . $provider . '_' . $field->getKey()
+                    ),
                     $shopId,
                     'module:captcha'
                 );

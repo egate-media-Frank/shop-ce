@@ -1935,6 +1935,9 @@ $aLang = [
     // Core CAPTCHA provider configuration (issue #213)
     'mxo3captcha' => 'CAPTCHA',
     'tbclo3captcha_config' => 'Settings',
+    'O3_CAPTCHA_ADMIN_NAV_LABEL' => 'CAPTCHA configuration',
+    'O3_CAPTCHA_PROVIDER_LABEL' => 'CAPTCHA provider',
+    'O3_CAPTCHA_FORMS_LABEL' => 'Protected forms',
     'O3_CAPTCHA_PROVIDER_NONE' => 'None (disabled)',
     'O3_CAPTCHA_REQUIRE_CONSENT' => 'Require visitor consent before loading',
     'O3_CAPTCHA_FORM_contact' => 'Contact form',

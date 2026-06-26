@@ -25,13 +25,33 @@ namespace OxidEsales\EshopCommunity\Internal\Framework\Theme\DataObject;
 
 class ThemeDataObject
 {
+    /** @var string */
+    private $id;
+
+    /** @var string */
+    private $title;
+
+    /** @var string */
+    private $version;
+
+    /** @var string */
+    private $parentTheme;
+
+    /** @var bool */
+    private $active;
+
     public function __construct(
-        private readonly string $id,
-        private readonly string $title,
-        private readonly string $version,
-        private readonly string $parentTheme,
-        private readonly bool $active,
+        string $id,
+        string $title,
+        string $version,
+        string $parentTheme,
+        bool $active
     ) {
+        $this->id = $id;
+        $this->title = $title;
+        $this->version = $version;
+        $this->parentTheme = $parentTheme;
+        $this->active = $active;
     }
 
     public function getId(): string

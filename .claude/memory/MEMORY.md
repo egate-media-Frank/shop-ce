@@ -33,3 +33,4 @@ Shared memory for all Claude agents working in this repository. Read this first,
 - [tinymce-editor module](tinymce-editor-module.md) — admin WYSIWYG editor is a sibling repo; vendors TinyMCE in out/, no test suite; TinyMCE 7 upgrade notes (#194)
 - [!] [Xdebug step debugging](xdebug-step-debugging.md) — ./docker.sh xdebug on|off|status toggle; Colima needs extra_hosts host-gateway for host.docker.internal (the #82 blocker)
 - [Core CAPTCHA provider layer (#213)](captcha-provider-layer.md) — pluggable captcha; DI/import conventions; $this->getContainer() pattern; testing-library env gotchas
+- [Adding a core admin controller](adding-a-core-admin-controller.md) — new core admin controller needs UnifiedNameSpaceClassMap + BackwardsCompatibilityClassMap + ShopControllerMapProvider entries + regenerate, else admin menu → main page

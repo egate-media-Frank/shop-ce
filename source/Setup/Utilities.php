@@ -29,6 +29,7 @@ use OxidEsales\DoctrineMigrationWrapper\MigrationsBuilder;
 use OxidEsales\Eshop\Core\Edition\EditionPathProvider;
 use OxidEsales\Eshop\Core\Edition\EditionRootPathProvider;
 use OxidEsales\Eshop\Core\Edition\EditionSelector;
+use OxidEsales\Eshop\Core\Registry;
 use OxidEsales\Facts\Facts;
 use Symfony\Component\Console\Output\ConsoleOutput;
 
@@ -499,7 +500,8 @@ class Utilities extends Core
     /**
      * Calls the external oe:theme:activate console command to activate the
      * theme declared by the just-imported configuration (sCustomTheme||sTheme).
-     * Failure is logged to the command output but does not abort setup.
+     * On a non-zero exit the captured output is logged as a warning (best-effort)
+     * and setup continues — activation failure does not abort the installer.
      *
      * @param Facts|null $facts A possible facts mock
      *
@@ -510,11 +512,52 @@ class Utilities extends Core
         $facts = $facts ?: new Facts();
         $console = $facts->getSourcePath() . '/../bin/oe-console';
 
+        $result = $this->runThemeActivateCommand($console);
+        $returnCode = (int) $result['returnCode'];
+
+        if ($returnCode !== 0) {
+            $this->logThemeActivationFailure($returnCode, $result['output']);
+        }
+
+        return $returnCode;
+    }
+
+    /**
+     * Runs the theme activation console command. Extracted as a seam so the
+     * failure handling can be exercised in isolation.
+     *
+     * @param string $console Path to the oe-console executable.
+     *
+     * @return array{returnCode: int, output: string[]}
+     */
+    protected function runThemeActivateCommand($console)
+    {
         $output = [];
         $returnCode = 0;
         exec('php ' . escapeshellarg($console) . ' oe:theme:activate 2>&1', $output, $returnCode);
 
-        return $returnCode;
+        return ['returnCode' => $returnCode, 'output' => $output];
+    }
+
+    /**
+     * Logs a non-fatal theme-activation failure during setup. Logging itself
+     * must never abort the installer, so any logger/container bootstrap error is
+     * swallowed (the shop logger may not yet be available on a fresh install).
+     *
+     * @param int      $returnCode Exit code returned by the activation command.
+     * @param string[] $output     Captured command output lines.
+     */
+    private function logThemeActivationFailure($returnCode, array $output)
+    {
+        try {
+            Registry::getLogger()->warning(
+                __METHOD__ . " - Theme activation during setup failed with exit code '$returnCode'.",
+                ['output' => $output]
+            );
+        } catch (\Throwable $loggingException) {
+            // Setup may run before the shop logger/container is bootstrapped;
+            // never let logging abort the installer (graceful degradation).
+        }
     }
 
     /**

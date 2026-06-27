@@ -212,6 +212,20 @@ if ($result->num_rows == 0) {
 ");
     $stmt->bind_param('sss', $adminId, $adminEmail, $adminPassHash);
     $stmt->execute();
+
+    // Activate the declared default theme (issue #122, phase 2). With no
+    // theme-id argument the command resolves sCustomTheme||sTheme from the
+    // config just imported by initial_data.sql and re-applies the theme.php
+    // defaults via the canonical Theme::activate() path. Idempotent alongside
+    // the existing theme:<id> rows.
+    echo "Activating default theme...\n";
+    $themeActivateCommand = __DIR__ . '/oe-console';
+    exec("cd " . __DIR__ . "/.. && php $themeActivateCommand oe:theme:activate 2>&1", $themeOutput, $themeReturnCode);
+    if ($themeReturnCode === 0) {
+        echo "Default theme activated.\n";
+    } else {
+        echo "WARNING: Default theme activation failed:\n" . implode("\n", $themeOutput) . "\n";
+    }
 } else {
     echo "Database already initialized, skipping schema import.\n";
 

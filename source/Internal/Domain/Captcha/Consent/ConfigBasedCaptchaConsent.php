@@ -22,6 +22,7 @@ declare(strict_types=1);
 
 namespace OxidEsales\EshopCommunity\Internal\Domain\Captcha\Consent;
 
+use OxidEsales\Eshop\Core\Registry;
 use OxidEsales\Eshop\Core\Request;
 use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration\CaptchaConfigurationInterface;
 
@@ -37,6 +38,28 @@ final class ConfigBasedCaptchaConsent implements CaptchaConsentInterface
 
     public function isConsentGranted(Request $request): bool
     {
-        return !$this->configuration->isConsentRequired();
+        switch ($this->configuration->getConsentMode()) {
+            case CaptchaConfigurationInterface::MODE_ALWAYS:
+                return true;
+            case CaptchaConfigurationInterface::MODE_COOKIE:
+                return $this->cookieMarkerPresent();
+            case CaptchaConfigurationInterface::MODE_GATE:
+            default:
+                return false;
+        }
+    }
+
+    private function cookieMarkerPresent(): bool
+    {
+        $name = $this->configuration->getConsentCookieName();
+        $marker = $this->configuration->getConsentCookieMarker();
+
+        if ($name === '' || $marker === '') {
+            return false;
+        }
+
+        $value = (string) Registry::getUtilsServer()->getOxCookie($name);
+
+        return $value !== '' && strpos($value, $marker) !== false;
     }
 }

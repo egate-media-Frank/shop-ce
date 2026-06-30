@@ -639,7 +639,9 @@ VALUES ('091fa9cc622351c270d5522741a21695', 'theme:o3-theme', 'sYouTubeUrl', 'fo
 -- (Comments must stay at column 0 — see #136.)
        ('516c5d0284c8901295508fe5f2724014', 'theme:o3-theme', 'sShowMode', 'mode', '', 1),
        ('dbee9d7d717f78f309386792e483a214', 'theme:o3-theme', 'sShowModePosition', 'mode', 'topleft|topright|bottomleft|bottomright', 1),
-       ('7cc228989a29ae584492ff08ab56cd92', 'theme:o3-theme', 'blShowFiltersSearch', 'display', '', 1),
+       ('7cc228989a29ae584492ff08ab56cd92', 'theme:o3-theme', 'blShowFiltersSearch',  'display', '', 1),
+       ('92286a9e6063258522af846de76ce2f0', 'theme:o3-theme', 'blShowSubcatTiles',    'display', '', 1),
+       ('d85b7c10b9c017de1a951834d5d05e81', 'theme:o3-theme', 'sEnable3xl',           'display', '', 1),
        ('1cc73e0e9c17e4d9ed1253196d463208', 'theme:o3-theme', 'bInputCompany', 'form', '', 1),
        ('6c692dddcddddd2c7ec3b33241833f1d', 'theme:o3-theme', 'bInputUstid', 'form', '', 1),
        ('dbfa6de4df36e0cd377f110a42a4eb19', 'theme:o3-theme', 'bInputState', 'form', '', 1),

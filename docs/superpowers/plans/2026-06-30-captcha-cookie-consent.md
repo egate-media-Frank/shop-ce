@@ -263,20 +263,30 @@ class ConfigBasedCaptchaConsentTest extends TestCase
         $this->assertFalse($consent->isConsentGranted($this->createMock(Request::class)));
     }
 
+    // Real Cookiebot `CookieConsent` value shape: PHP has already URL-decoded the
+    // raw cookie ($_COOKIE) so commas are literal here. reCAPTCHA is filed under a
+    // category, so the merchant's marker is the category boolean (e.g. 'marketing:true'),
+    // NOT a literal 'recaptcha' key. Substring-contains distinguishes ':true' from ':false'.
+    private const COOKIEBOT_ACCEPTED =
+        "{stamp:'abc==',necessary:true,preferences:true,statistics:true,marketing:true,method:'explicit',ver:1,utc:1782201155329,region:'de'}";
+    private const COOKIEBOT_DECLINED =
+        "{stamp:'abc==',necessary:true,preferences:false,statistics:false,marketing:false,method:'explicit',ver:1,utc:1782201155329,region:'de'}";
+
     public function testCookieModeGrantsWhenMarkerPresentInCookieValue(): void
     {
-        $this->withCookie('CookieConsent', '{stamp:1,recaptcha:true,marketing:false}');
+        $this->withCookie('CookieConsent', self::COOKIEBOT_ACCEPTED);
         $consent = new ConfigBasedCaptchaConsent(
-            $this->config(CaptchaConfigurationInterface::MODE_COOKIE, 'CookieConsent', 'recaptcha:true')
+            $this->config(CaptchaConfigurationInterface::MODE_COOKIE, 'CookieConsent', 'marketing:true')
         );
         $this->assertTrue($consent->isConsentGranted($this->createMock(Request::class)));
     }
 
     public function testCookieModeDeniesWhenMarkerAbsent(): void
     {
-        $this->withCookie('CookieConsent', '{stamp:1,recaptcha:false}');
+        // Declined: the value has 'marketing:false', which does NOT contain 'marketing:true'.
+        $this->withCookie('CookieConsent', self::COOKIEBOT_DECLINED);
         $consent = new ConfigBasedCaptchaConsent(
-            $this->config(CaptchaConfigurationInterface::MODE_COOKIE, 'CookieConsent', 'recaptcha:true')
+            $this->config(CaptchaConfigurationInterface::MODE_COOKIE, 'CookieConsent', 'marketing:true')
         );
         $this->assertFalse($consent->isConsentGranted($this->createMock(Request::class)));
     }
@@ -285,7 +295,7 @@ class ConfigBasedCaptchaConsentTest extends TestCase
     {
         $this->withCookie('CookieConsent', null);
         $consent = new ConfigBasedCaptchaConsent(
-            $this->config(CaptchaConfigurationInterface::MODE_COOKIE, 'CookieConsent', 'recaptcha:true')
+            $this->config(CaptchaConfigurationInterface::MODE_COOKIE, 'CookieConsent', 'marketing:true')
         );
         $this->assertFalse($consent->isConsentGranted($this->createMock(Request::class)));
     }
@@ -395,7 +405,7 @@ In `CaptchaServiceTest.php`, replace the `service()` helper so the config mock a
         $config->method('isFormEnabled')->willReturnCallback(fn ($f) => $opts['enabled'] ?? true);
         $config->method('getConsentMode')->willReturn($opts['mode'] ?? CaptchaConfigurationInterface::MODE_ALWAYS);
         $config->method('getConsentCookieName')->willReturn($opts['cookieName'] ?? 'CookieConsent');
-        $config->method('getConsentCookieMarker')->willReturn($opts['marker'] ?? 'recaptcha:true');
+        $config->method('getConsentCookieMarker')->willReturn($opts['marker'] ?? 'marketing:true');
 
         $consent = $this->createMock(CaptchaConsentInterface::class);
         $consent->method('isConsentGranted')->willReturn($opts['consent'] ?? true);
@@ -455,12 +465,12 @@ Append to `CaptchaServiceTest.php`:
         $svc = $this->service($this->provider('p'), [
             'mode' => CaptchaConfigurationInterface::MODE_COOKIE,
             'cookieName' => 'CookieConsent',
-            'marker' => 'recaptcha:true',
+            'marker' => 'marketing:true',
         ]);
         $html = $svc->renderForForm('contact');
 
         $this->assertStringContainsString('"CookieConsent"', $html);
-        $this->assertStringContainsString('"recaptcha:true"', $html);
+        $this->assertStringContainsString('"marketing:true"', $html);
     }
 
     public function testCookieModeBootstrapEmittedOncePerRequest(): void
@@ -917,7 +927,7 @@ In `source/Application/views/admin/en/lang.php`, add next to `O3_CAPTCHA_REQUIRE
     'O3_CAPTCHA_CONSENT_MODE_COOKIE'        => 'Load when the consent cookie allows it',
     'O3_CAPTCHA_CONSENT_COOKIE_NAME'        => 'Consent cookie name',
     'O3_CAPTCHA_CONSENT_COOKIE_MARKER'      => 'Consent marker (substring)',
-    'O3_CAPTCHA_CONSENT_COOKIE_HINT'        => 'The CAPTCHA loads only when this cookie contains the marker. Until the visitor accepts, the protected form cannot be submitted.',
+    'O3_CAPTCHA_CONSENT_COOKIE_HINT'        => 'The CAPTCHA loads only when this cookie contains the marker. Until the visitor accepts, the protected form cannot be submitted. Use the marker your consent tool writes for the category reCAPTCHA is in — e.g. Cookiebot: cookie "CookieConsent", marker "marketing:true". Use a plain category:true form; avoid quotes or < > &.',
 ```
 
 - [ ] **Step 2: Add German keys**
@@ -931,7 +941,7 @@ In `source/Application/views/admin/de/lang.php`, add next to `O3_CAPTCHA_REQUIRE
     'O3_CAPTCHA_CONSENT_MODE_COOKIE'        => 'Laden, wenn das Einwilligungs-Cookie es erlaubt',
     'O3_CAPTCHA_CONSENT_COOKIE_NAME'        => 'Name des Einwilligungs-Cookies',
     'O3_CAPTCHA_CONSENT_COOKIE_MARKER'      => 'Einwilligungs-Merkmal (Teilzeichenkette)',
-    'O3_CAPTCHA_CONSENT_COOKIE_HINT'        => 'Das CAPTCHA wird nur geladen, wenn dieses Cookie das Merkmal enthält. Solange der Besucher nicht zustimmt, kann das geschützte Formular nicht abgeschickt werden.',
+    'O3_CAPTCHA_CONSENT_COOKIE_HINT'        => 'Das CAPTCHA wird nur geladen, wenn dieses Cookie das Merkmal enthält. Solange der Besucher nicht zustimmt, kann das geschützte Formular nicht abgeschickt werden. Verwenden Sie das Merkmal, das Ihr Consent-Tool für die Kategorie von reCAPTCHA setzt – z. B. Cookiebot: Cookie "CookieConsent", Merkmal "marketing:true". Nutzen Sie die Form kategorie:true ohne Anführungszeichen oder < > &.',
 ```
 
 - [ ] **Step 3: Commit**

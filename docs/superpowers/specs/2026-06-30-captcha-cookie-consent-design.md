@@ -192,6 +192,17 @@ Form submit (cookie mode, non-exempt provider)
 
 - **Cookie mode, blank name or marker:** server returns not-granted; client bootstrap
   no-ops → notice stays; submission fails closed. Net behavior = `gate`. Safe.
+- **Marker format (real-world):** consent tools store *category* booleans, not a literal
+  `recaptcha` key. For Cookiebot the cookie `CookieConsent` decodes to
+  `{…,statistics:true,marketing:true,…}` and reCAPTCHA is filed under a category — so the
+  marker is the category boolean the merchant assigned, e.g. `marketing:true`. Substring-
+  contains correctly separates `marketing:true` from `marketing:false`. The raw cookie is
+  URL-encoded: PHP auto-decodes `$_COOKIE` (then `checkParamSpecialChars` escapes quotes /
+  `<>&` but leaves `category:true` intact) and the JS bootstrap calls `decodeURIComponent`,
+  so both sides match the same plain marker. **Caveat:** a marker containing quotes or
+  `<>&` (e.g. `method:'explicit'`) is escaped server-side but not client-side → the two
+  paths disagree. Admin guidance: use a plain `category:true` marker. This is documented in
+  the admin hint, not enforced in code.
 - **Consent-exempt provider in cookie mode:** the exempt check short-circuits before the
   mode branch → widget loads and verifies normally, no gate. (Covered by #183's
   `CaptchaServiceConsentExemptTest`, which must keep passing.)

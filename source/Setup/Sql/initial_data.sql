@@ -147,7 +147,8 @@ VALUES ('8563fba1965a11df3.34244997', 1, '', 'blEnterNetPrice', 'bool', ''),
        ('32ddeaf2694e06b47b6ff74eafc69b65', 1, '', 'sParcelService', 'str',
         'http://www.dpd.de/cgi-bin/delistrack?typ=1&amp;lang=de&amp;pknr=##ID##'),
        ('1eada690d18be312ef5e49b8451440e7', 1, '', 'blShowTSCODMessage', 'bool', '1'),
-       ('0540d81331908df3b3cd950f3c27619f', 1, '', 'sCustomTheme', 'str', '');
+       ('0540d81331908df3b3cd950f3c27619f', 1, '', 'sCustomTheme', 'str', ''),
+       ('e19f12b05dd150339d39798ea831a7ed', 1, '', 'contactFormRequiredFields', 'arr', 'a:1:{i:0;s:5:"email";}');
 
 INSERT INTO `oxconfig` (`OXID`, `OXSHOPID`, `OXMODULE`, `OXVARNAME`, `OXVARTYPE`, `OXVARVALUE`)
 VALUES ('8563fba1baec57c19.08644217', 1, '', 'sThumbnailsize', 'str', '390*245'),

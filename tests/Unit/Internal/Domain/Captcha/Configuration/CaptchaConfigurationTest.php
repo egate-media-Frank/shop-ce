@@ -73,4 +73,63 @@ class CaptchaConfigurationTest extends TestCase
         $this->assertSame('ABC', $cfg->getProviderSetting('google_recaptcha_v2', 'siteKey', ''));
         $this->assertSame('def', $cfg->getProviderSetting('google_recaptcha_v2', 'secretKey', 'def'));
     }
+
+    public function testConsentModeDefaultsToGateWhenNothingConfigured(): void
+    {
+        $this->assertSame(
+            CaptchaConfiguration::MODE_GATE,
+            (new CaptchaConfiguration())->getConsentMode()
+        );
+    }
+
+    public function testConsentModeReadsExplicitValue(): void
+    {
+        $this->params['sCaptchaConsentMode'] = 'cookie';
+        $this->assertSame(
+            CaptchaConfiguration::MODE_COOKIE,
+            (new CaptchaConfiguration())->getConsentMode()
+        );
+    }
+
+    public function testUnknownConsentModeCoercesToGate(): void
+    {
+        $this->params['sCaptchaConsentMode'] = 'bogus';
+        $this->assertSame(
+            CaptchaConfiguration::MODE_GATE,
+            (new CaptchaConfiguration())->getConsentMode()
+        );
+    }
+
+    public function testConsentModeFallsBackToLegacyBoolWhenModeUnset(): void
+    {
+        // Legacy "require consent = false" → always-load.
+        $this->params['blCaptchaRequireConsent'] = false;
+        $this->assertSame(
+            CaptchaConfiguration::MODE_ALWAYS,
+            (new CaptchaConfiguration())->getConsentMode()
+        );
+
+        // Legacy "require consent = true" → gate (the safe default).
+        $this->params['blCaptchaRequireConsent'] = true;
+        $this->assertSame(
+            CaptchaConfiguration::MODE_GATE,
+            (new CaptchaConfiguration())->getConsentMode()
+        );
+    }
+
+    public function testConsentCookieNameAndMarkerDefaultToEmpty(): void
+    {
+        $cfg = new CaptchaConfiguration();
+        $this->assertSame('', $cfg->getConsentCookieName());
+        $this->assertSame('', $cfg->getConsentCookieMarker());
+    }
+
+    public function testConsentCookieNameAndMarkerAreRead(): void
+    {
+        $this->params['sCaptchaConsentCookieName'] = 'CookieConsent';
+        $this->params['sCaptchaConsentCookieMarker'] = 'recaptcha:true';
+        $cfg = new CaptchaConfiguration();
+        $this->assertSame('CookieConsent', $cfg->getConsentCookieName());
+        $this->assertSame('recaptcha:true', $cfg->getConsentCookieMarker());
+    }
 }

@@ -40,6 +40,8 @@ final class CaptchaService implements CaptchaServiceInterface
     private $consent;
     /** @var bool */
     private $headScriptEmitted = false;
+    /** @var bool */
+    private $bootstrapEmitted = false;
 
     public function __construct(
         CaptchaProviderLocator $locator,
@@ -61,23 +63,26 @@ final class CaptchaService implements CaptchaServiceInterface
         if (!$this->isEnabledForForm($formId)) {
             return '';
         }
+
         $provider = $this->activeProvider();
-        if (!($provider instanceof ConsentExemptCaptchaProviderInterface)
-            && !$this->consent->isConsentGranted(Registry::getRequest())) {
-            return '<div class="o3-captcha-consent-notice">'
-                . htmlspecialchars((string) Registry::getLang()->translateString('O3_CAPTCHA_CONSENT_NOTICE'), ENT_QUOTES)
-                . '</div>';
+
+        // #183: consent-exempt providers make no third-party calls → never gated.
+        if ($provider instanceof ConsentExemptCaptchaProviderInterface) {
+            return $this->renderWidgetWithHeadScript($provider, $formId);
         }
 
-        $html = '';
-        if (!$this->headScriptEmitted) {
-            $script = $provider->getHeadScript();
-            if ($script !== null) {
-                $html .= $script;
-                $this->headScriptEmitted = true;
-            }
+        // Cookie mode defers the load/consent decision to the browser so the markup
+        // is cache-safe and the provider's script is never emitted up-front.
+        if ($this->configuration->getConsentMode() === CaptchaConfigurationInterface::MODE_COOKIE) {
+            return $this->renderDeferredGate($provider, $formId);
         }
-        return $html . $provider->renderWidget($formId);
+
+        // always → consent granted → widget; gate → not granted → notice (#183).
+        if (!$this->consent->isConsentGranted(Registry::getRequest())) {
+            return $this->renderNotice();
+        }
+
+        return $this->renderWidgetWithHeadScript($provider, $formId);
     }
 
     public function verifyForForm(string $formId, Request $request): bool
@@ -98,6 +103,84 @@ final class CaptchaService implements CaptchaServiceInterface
             return false;
         }
         return $provider->verify($request, $formId);
+    }
+
+    private function renderWidgetWithHeadScript(CaptchaProviderInterface $provider, string $formId): string
+    {
+        $html = '';
+        if (!$this->headScriptEmitted) {
+            $script = $provider->getHeadScript();
+            if ($script !== null) {
+                $html .= $script;
+                $this->headScriptEmitted = true;
+            }
+        }
+        return $html . $provider->renderWidget($formId);
+    }
+
+    private function renderNotice(): string
+    {
+        return '<div class="o3-captcha-consent-notice">'
+            . htmlspecialchars((string) Registry::getLang()->translateString('O3_CAPTCHA_CONSENT_NOTICE'), ENT_QUOTES)
+            . '</div>';
+    }
+
+    private function renderDeferredGate(CaptchaProviderInterface $provider, string $formId): string
+    {
+        // The provider's head script is included in the FIRST gate's template
+        // only; the bootstrap re-creates whatever <script> nodes it finds.
+        $deferred = '';
+        if (!$this->headScriptEmitted) {
+            $script = $provider->getHeadScript();
+            if ($script !== null) {
+                $deferred .= $script;
+                $this->headScriptEmitted = true;
+            }
+        }
+        $deferred .= $provider->renderWidget($formId);
+
+        $gate = '<div class="o3-captcha-gate">'
+            . $this->renderNotice()
+            . '<template class="o3-captcha-deferred">' . $deferred . '</template>'
+            . '</div>';
+
+        return $gate . $this->bootstrapScript();
+    }
+
+    private function bootstrapScript(): string
+    {
+        if ($this->bootstrapEmitted) {
+            return '';
+        }
+        $this->bootstrapEmitted = true;
+
+        $cookieName = json_encode($this->configuration->getConsentCookieName());
+        $marker = json_encode($this->configuration->getConsentCookieMarker());
+
+        return '<script>'
+            . '(function(){'
+            . 'var COOKIE=' . $cookieName . ',MARKER=' . $marker . ';'
+            . 'function o3CaptchaConsentGate(){'
+            . 'if(!COOKIE||!MARKER){return;}'
+            . 'var parts=document.cookie?document.cookie.split(";"):[];var granted=false;'
+            . 'for(var i=0;i<parts.length;i++){var c=parts[i].replace(/^\s+/,"");'
+            . 'if(c.indexOf(COOKIE+"=")===0){'
+            . 'if(decodeURIComponent(c.substring(COOKIE.length+1)).indexOf(MARKER)!==-1){granted=true;}break;}}'
+            . 'if(!granted){return;}'
+            . 'var gates=document.querySelectorAll(".o3-captcha-gate");'
+            . 'for(var g=0;g<gates.length;g++){'
+            . 'var tpl=gates[g].querySelector("template.o3-captcha-deferred");if(!tpl){continue;}'
+            . 'var notice=gates[g].querySelector(".o3-captcha-consent-notice");if(notice){notice.style.display="none";}'
+            . 'var frag=tpl.content.cloneNode(true);var old=frag.querySelectorAll("script");'
+            . 'for(var s=0;s<old.length;s++){var n=document.createElement("script");'
+            . 'for(var a=0;a<old[s].attributes.length;a++){n.setAttribute(old[s].attributes[a].name,old[s].attributes[a].value);}'
+            . 'n.text=old[s].textContent;old[s].parentNode.replaceChild(n,old[s]);}'
+            . 'gates[g].appendChild(frag);}'
+            . '}'
+            . 'if(document.readyState!=="loading"){o3CaptchaConsentGate();}'
+            . 'else{document.addEventListener("DOMContentLoaded",o3CaptchaConsentGate);}'
+            . '})();'
+            . '</script>';
     }
 
     private function activeProvider(): CaptchaProviderInterface

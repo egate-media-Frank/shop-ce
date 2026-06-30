@@ -4,7 +4,9 @@
 
 **Goal:** Let a merchant drive the core CAPTCHA widget on/off per visitor from their cookie-consent tool, configured entirely in admin — no module required for the common (readable-cookie) case.
 
-**Architecture:** Replace the single `blCaptchaRequireConsent` boolean with a 3-way consent mode (`always` / `gate` / `cookie`). `gate`/`always` are static; `cookie` mode emits the widget inert behind a client-side script-blocking gate (Google's script loads only after the browser confirms a consent-cookie marker) and re-checks the same cookie server-side at submit. The `CaptchaConsentInterface` seam is unchanged, so non-substring cookie formats can still be handled by a module.
+**Architecture:** Replace the single `blCaptchaRequireConsent` boolean with a 3-way consent mode (`always` / `gate` / `cookie`). `gate`/`always` are static; `cookie` mode emits the widget inert behind a client-side script-blocking gate (Google's script loads only after the browser confirms a consent-cookie marker) and re-checks the same cookie server-side at submit. Builds on **#183** (already merged): the **fail-closed** `verifyForForm` and the `ConsentExemptCaptchaProviderInterface` bypass are preserved untouched — cookie mode only changes what `isConsentGranted()` returns, so a declining visitor is blocked (fail closed), consistent with #183. The `CaptchaConsentInterface` seam is unchanged, so non-substring cookie formats can still be handled by a module.
+
+**Base:** `b-1.6` at or after #183 (`c4b107f8`). If `CaptchaService::verifyForForm` does **not** already contain the fail-closed `return false` + `ConsentExemptCaptchaProviderInterface` check, STOP — the base is wrong.
 
 **Tech Stack:** PHP 7.4, OXID/O3 framework (`Registry`, `oxconfig`, `UtilsServer`), Symfony DI (YAML), Smarty 2.6 admin template, PHPUnit 9. All commands run inside Docker via `./docker.sh`.
 
@@ -375,7 +377,11 @@ git commit -m "feat(#213): drive server-side CAPTCHA consent from mode + cookie 
 - Modify: `source/Internal/Domain/Captcha/CaptchaService.php`
 - Test: `tests/Unit/Internal/Domain/Captcha/CaptchaServiceTest.php`
 
-The current `renderForForm` keys off `consent->isConsentGranted()`. It must instead branch on `configuration->getConsentMode()`, because cookie mode renders the deferred gate regardless of the server's per-request read (cache-safety). `verifyForForm` keeps using `consent->isConsentGranted()` unchanged.
+**Build on the CURRENT (#183) `CaptchaService`, do not revert it.** The merged code already: (a) checks `ConsentExemptCaptchaProviderInterface` and bypasses the gate for exempt providers, and (b) **fails closed** in `verifyForForm` (returns `false` + logs when consent is required but not granted).
+
+This task changes **only `renderForForm`**, layering the cookie-mode deferred gate on top of #183's logic. The new order is: exempt provider → widget directly; else mode `cookie` → deferred gate; else (`always`/`gate`) → #183's server-side `isConsentGranted()` decision (notice vs widget). **`verifyForForm` is NOT modified** — cookie mode only changes what `isConsentGranted()` returns (Task 2), so a declining visitor is blocked (fail closed), consistent with #183.
+
+The exempt check must stay **first** so `CaptchaServiceConsentExemptTest` keeps passing (its config mock does not stub `getConsentMode`).
 
 - [ ] **Step 1: Update the test helper and migrate existing render tests**
 
@@ -399,10 +405,10 @@ In `CaptchaServiceTest.php`, replace the `service()` helper so the config mock a
     }
 ```
 
-Migrate the existing notice test (it currently passes `['consent' => false]`) to use gate mode, and rename for clarity:
+Migrate the existing notice test — its current name is `testConsentRequiredButNotGrantedShowsNoticeAndBlocksVerification` and it asserts **fail closed** (`verifyForForm` returns `false`). Keep the fail-closed assertion (do NOT change it to fail-open) and make the mode explicit as `gate`:
 
 ```php
-    public function testGateModeShowsNoticeAndSkipsVerification(): void
+    public function testConsentRequiredButNotGrantedShowsNoticeAndBlocksVerification(): void
     {
         $svc = $this->service($this->provider('p'), [
             'mode' => CaptchaConfigurationInterface::MODE_GATE,
@@ -411,7 +417,8 @@ Migrate the existing notice test (it currently passes `['consent' => false]`) to
         $html = $svc->renderForForm('contact');
         $this->assertStringContainsString('o3-captcha-consent-notice', $html);
         $this->assertStringNotContainsString('id="widget"', $html);
-        $this->assertTrue($svc->verifyForForm('contact', $this->createMock(Request::class)));
+        // Fail closed (#183): without consent the captcha cannot load, so submission is blocked.
+        $this->assertFalse($svc->verifyForForm('contact', $this->createMock(Request::class)));
     }
 ```
 
@@ -470,6 +477,56 @@ Append to `CaptchaServiceTest.php`:
         $this->assertStringContainsString('o3CaptchaConsentGate', $first);
         $this->assertStringNotContainsString('o3CaptchaConsentGate', $second);
     }
+
+    public function testExemptProviderInCookieModeRendersWidgetWithoutGate(): void
+    {
+        // A consent-exempt provider (#183) must bypass the cookie gate entirely.
+        $exempt = new class () implements CaptchaProviderInterface, ConsentExemptCaptchaProviderInterface {
+            public function getId(): string
+            {
+                return 'exempt';
+            }
+            public function getTitle(): string
+            {
+                return 'Exempt';
+            }
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+            public function getConfigFields(): array
+            {
+                return [];
+            }
+            public function getHeadScript(): ?string
+            {
+                return '<script id="head"></script>';
+            }
+            public function renderWidget(string $formId): string
+            {
+                return '<div id="widget"></div>';
+            }
+            public function verify(Request $request, string $formId): bool
+            {
+                return true;
+            }
+        };
+
+        $svc = $this->service($exempt, ['mode' => CaptchaConfigurationInterface::MODE_COOKIE]);
+        $html = $svc->renderForForm('contact');
+
+        // Widget renders live (no deferred gate, no template) despite cookie mode.
+        $this->assertStringContainsString('id="widget"', $html);
+        $this->assertStringNotContainsString('o3-captcha-gate', $html);
+        $this->assertStringNotContainsString('<template', $html);
+    }
+```
+
+This test needs two imports at the top of the test file (add if absent):
+
+```php
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\CaptchaProviderInterface;
+use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider\ConsentExemptCaptchaProviderInterface;
 ```
 
 Add this helper method to the test class (removes every `<template>...</template>` block so we can assert on the remainder):
@@ -497,7 +554,7 @@ In `CaptchaService.php`, add a `$bootstrapEmitted` flag next to `$headScriptEmit
     private $bootstrapEmitted = false;
 ```
 
-Replace `renderForForm()` with a mode switch:
+Replace **only** `renderForForm()` (leave `verifyForForm()` and `activeProvider()` exactly as #183 has them). The new body keeps the exempt-provider short-circuit first, adds the cookie branch, and falls back to #183's server-side consent decision:
 
 ```php
     public function renderForForm(string $formId): string
@@ -506,24 +563,33 @@ Replace `renderForForm()` with a mode switch:
             return '';
         }
 
-        switch ($this->configuration->getConsentMode()) {
-            case CaptchaConfigurationInterface::MODE_ALWAYS:
-                return $this->renderWidgetWithHeadScript($formId);
-            case CaptchaConfigurationInterface::MODE_COOKIE:
-                return $this->renderDeferredGate($formId);
-            case CaptchaConfigurationInterface::MODE_GATE:
-            default:
-                return $this->renderNotice();
+        $provider = $this->activeProvider();
+
+        // #183: consent-exempt providers make no third-party calls → never gated.
+        if ($provider instanceof ConsentExemptCaptchaProviderInterface) {
+            return $this->renderWidgetWithHeadScript($provider, $formId);
         }
+
+        // Cookie mode defers the load/consent decision to the browser so the markup
+        // is cache-safe and the provider's script is never emitted up-front.
+        if ($this->configuration->getConsentMode() === CaptchaConfigurationInterface::MODE_COOKIE) {
+            return $this->renderDeferredGate($provider, $formId);
+        }
+
+        // always → consent granted → widget; gate → not granted → notice (#183).
+        if (!$this->consent->isConsentGranted(Registry::getRequest())) {
+            return $this->renderNotice();
+        }
+
+        return $this->renderWidgetWithHeadScript($provider, $formId);
     }
 ```
 
-Add the private helpers (the old `always` path is now `renderWidgetWithHeadScript`, and the old notice markup becomes `renderNotice`):
+Add the private helpers (the inlined #183 widget/notice markup is extracted into these so all three render paths share it):
 
 ```php
-    private function renderWidgetWithHeadScript(string $formId): string
+    private function renderWidgetWithHeadScript(CaptchaProviderInterface $provider, string $formId): string
     {
-        $provider = $this->activeProvider();
         $html = '';
         if (!$this->headScriptEmitted) {
             $script = $provider->getHeadScript();
@@ -542,10 +608,8 @@ Add the private helpers (the old `always` path is now `renderWidgetWithHeadScrip
             . '</div>';
     }
 
-    private function renderDeferredGate(string $formId): string
+    private function renderDeferredGate(CaptchaProviderInterface $provider, string $formId): string
     {
-        $provider = $this->activeProvider();
-
         // The provider's head script is included in the FIRST gate's template
         // only; the bootstrap re-creates whatever <script> nodes it finds.
         $deferred = '';
@@ -603,13 +667,7 @@ Add the private helpers (the old `always` path is now `renderWidgetWithHeadScrip
     }
 ```
 
-Add the interface import at the top of the file if not already present:
-
-```php
-use OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration\CaptchaConfigurationInterface;
-```
-
-(It is already imported — verify the `use` block; do not duplicate.)
+All types used here (`CaptchaConfigurationInterface`, `CaptchaProviderInterface`, `ConsentExemptCaptchaProviderInterface`, `Registry`) are **already imported** in #183's `CaptchaService.php`. Verify the `use` block and do not duplicate.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -859,7 +917,7 @@ In `source/Application/views/admin/en/lang.php`, add next to `O3_CAPTCHA_REQUIRE
     'O3_CAPTCHA_CONSENT_MODE_COOKIE'        => 'Load when the consent cookie allows it',
     'O3_CAPTCHA_CONSENT_COOKIE_NAME'        => 'Consent cookie name',
     'O3_CAPTCHA_CONSENT_COOKIE_MARKER'      => 'Consent marker (substring)',
-    'O3_CAPTCHA_CONSENT_COOKIE_HINT'        => 'The CAPTCHA loads only when this cookie contains the marker. While consent is absent the form is submitted without CAPTCHA verification (unprotected for that visitor).',
+    'O3_CAPTCHA_CONSENT_COOKIE_HINT'        => 'The CAPTCHA loads only when this cookie contains the marker. Until the visitor accepts, the protected form cannot be submitted.',
 ```
 
 - [ ] **Step 2: Add German keys**
@@ -873,7 +931,7 @@ In `source/Application/views/admin/de/lang.php`, add next to `O3_CAPTCHA_REQUIRE
     'O3_CAPTCHA_CONSENT_MODE_COOKIE'        => 'Laden, wenn das Einwilligungs-Cookie es erlaubt',
     'O3_CAPTCHA_CONSENT_COOKIE_NAME'        => 'Name des Einwilligungs-Cookies',
     'O3_CAPTCHA_CONSENT_COOKIE_MARKER'      => 'Einwilligungs-Merkmal (Teilzeichenkette)',
-    'O3_CAPTCHA_CONSENT_COOKIE_HINT'        => 'Das CAPTCHA wird nur geladen, wenn dieses Cookie das Merkmal enthält. Ohne Einwilligung wird das Formular ohne CAPTCHA-Prüfung abgeschickt (für diesen Besucher ungeschützt).',
+    'O3_CAPTCHA_CONSENT_COOKIE_HINT'        => 'Das CAPTCHA wird nur geladen, wenn dieses Cookie das Merkmal enthält. Solange der Besucher nicht zustimmt, kann das geschützte Formular nicht abgeschickt werden.',
 ```
 
 - [ ] **Step 3: Commit**
@@ -922,12 +980,13 @@ Append to `.claude/memory/captcha-provider-layer.md`: the consent layer is now a
 
 **Spec coverage:**
 - 3 modes + config keys + legacy fallback → Task 1. ✔
-- Server-side cookie read / fail-open semantics → Task 2. ✔
-- Client-side script-blocking gate, once-on-load, `<script>` re-creation, per-form gate + once-per-request bootstrap → Task 3. ✔
+- Server-side cookie read feeding `isConsentGranted` (mode switch) → Task 2. ✔
+- Client-side script-blocking gate, once-on-load, `<script>` re-creation, per-form gate + once-per-request bootstrap, exempt-provider bypass preserved → Task 3. ✔
+- `verifyForForm` fail-closed (#183) left untouched; cookie-decline = blocked → Task 3 preamble + migrated test. ✔
 - Admin dropdown + revealable cookie fields + save → Tasks 4–5. ✔
-- Lang keys incl. fail-open warning → Task 6. ✔
-- Testing matrix (config mapping, consent modes, render-per-mode, no-live-script-outside-template, verify fail-open, admin save) → Tasks 1–4. ✔
-- Out-of-scope items (regex/JSON, live re-check, per-provider, cache-vary) → not implemented, by design. ✔
+- Lang keys incl. fail-closed warning → Task 6. ✔
+- Testing matrix (config mapping, consent modes, render-per-mode, no-live-script-outside-template, exempt-in-cookie-mode, #183 fail-closed tests still pass, admin save) → Tasks 1–4. ✔
+- Out-of-scope items (verifyForForm change, regex/JSON, live re-check, per-provider, cache-vary) → not implemented, by design. ✔
 
 **Placeholder scan:** none — every code/step is concrete.
 

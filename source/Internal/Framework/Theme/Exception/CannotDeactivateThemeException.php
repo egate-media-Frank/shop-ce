@@ -14,32 +14,23 @@
  * You should have received a copy of the GNU General Public License
  * along with O3-Shop.  If not, see <http://www.gnu.org/licenses/>
  *
- * @copyright  Copyright (c) 2026 O3-Shop (https://www.o3-shop.com)
+ * @copyright  Copyright (c) 2022 OXID eSales AG (https://www.oxid-esales.com)
+ * @copyright  Copyright (c) 2022 O3-Shop (https://www.o3-shop.com)
  * @license    https://www.gnu.org/licenses/gpl-3.0  GNU General Public License 3 (GPLv3)
  */
 
 declare(strict_types=1);
 
-namespace OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration;
+namespace OxidEsales\EshopCommunity\Internal\Framework\Theme\Exception;
 
-interface CaptchaConfigurationInterface
+class CannotDeactivateThemeException extends \Exception
 {
-    public const MODE_ALWAYS = 'always';
-    public const MODE_GATE = 'gate';
-    public const MODE_COOKIE = 'cookie';
-
-    public function getActiveProviderId(): string;
-
-    public function isFormEnabled(string $formId): bool;
-
-    public function isConsentRequired(): bool;
-
-    public function getConsentMode(): string;
-
-    public function getConsentCookieName(): string;
-
-    public function getConsentCookieMarker(): string;
-
-    /** @return mixed */
-    public function getProviderSetting(string $providerId, string $key, $default = null);
+    public function __construct(string $themeId)
+    {
+        parent::__construct(sprintf(
+            'Cannot deactivate base theme "%s": the storefront would be left without a theme. '
+            . 'Activate another theme instead.',
+            $themeId
+        ));
+    }
 }

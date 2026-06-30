@@ -49,12 +49,40 @@
         [{/foreach}]
 
         <p>
-            <label>
-                <input type="checkbox" name="blCaptchaRequireConsent" value="1"
-                       [{if $oView->isConsentRequired()}]checked="checked"[{/if}]>
-                [{oxmultilang ident="O3_CAPTCHA_REQUIRE_CONSENT"}]
+            <label for="sCaptchaConsentMode">
+                [{oxmultilang ident="O3_CAPTCHA_CONSENT_MODE_LABEL"}]
             </label>
+            <select id="sCaptchaConsentMode" name="sCaptchaConsentMode">
+                [{assign var="consentMode" value=$oView->getConsentMode()}]
+                <option value="always" [{if $consentMode == "always"}]selected="selected"[{/if}]>
+                    [{oxmultilang ident="O3_CAPTCHA_CONSENT_MODE_ALWAYS"}]
+                </option>
+                <option value="gate" [{if $consentMode == "gate"}]selected="selected"[{/if}]>
+                    [{oxmultilang ident="O3_CAPTCHA_CONSENT_MODE_GATE"}]
+                </option>
+                <option value="cookie" [{if $consentMode == "cookie"}]selected="selected"[{/if}]>
+                    [{oxmultilang ident="O3_CAPTCHA_CONSENT_MODE_COOKIE"}]
+                </option>
+            </select>
         </p>
+
+        <div class="o3-captcha-cookie-fields" [{if $consentMode != "cookie"}]style="display:none;"[{/if}]>
+            <p class="o3-captcha-hint">[{oxmultilang ident="O3_CAPTCHA_CONSENT_COOKIE_HINT"}]</p>
+            <p>
+                <label for="sCaptchaConsentCookieName">
+                    [{oxmultilang ident="O3_CAPTCHA_CONSENT_COOKIE_NAME"}]
+                </label>
+                <input type="text" id="sCaptchaConsentCookieName" name="sCaptchaConsentCookieName"
+                       value="[{$oView->getConsentCookieName()|escape:'html'}]">
+            </p>
+            <p>
+                <label for="sCaptchaConsentCookieMarker">
+                    [{oxmultilang ident="O3_CAPTCHA_CONSENT_COOKIE_MARKER"}]
+                </label>
+                <input type="text" id="sCaptchaConsentCookieMarker" name="sCaptchaConsentCookieMarker"
+                       value="[{$oView->getConsentCookieMarker()|escape:'html'}]">
+            </p>
+        </div>
 
         <p>
             <strong>[{oxmultilang ident="O3_CAPTCHA_FORMS_LABEL"}]</strong>
@@ -92,6 +120,18 @@
             }
             providerSelect.addEventListener('change', syncProviderFields);
             syncProviderFields();
+
+            var consentModeSelect = document.getElementById('sCaptchaConsentMode');
+            if (consentModeSelect) {
+                var cookieFields = document.querySelector('.o3-captcha-cookie-fields');
+                function syncConsentFields() {
+                    if (cookieFields) {
+                        cookieFields.style.display = (consentModeSelect.value === 'cookie') ? '' : 'none';
+                    }
+                }
+                consentModeSelect.addEventListener('change', syncConsentFields);
+                syncConsentFields();
+            }
         })();
     </script>
 </form>

@@ -35,10 +35,12 @@ use Psr\Container\ContainerInterface;
  * CAPTCHA feature — admin configuration page.
  *
  * Owns the operator-facing `oxconfig` settings of the core CAPTCHA feature:
- *   - `sCaptchaProvider`          (str)  — id of the active provider ('' = none)
- *   - `blCaptchaRequireConsent`   (bool) — gate the widget behind explicit consent
- *   - `blCaptchaForm_<formId>`    (bool) — per-form on/off toggle
- *   - `sCaptcha_<providerId>_<key>` (str) — per-provider credential / setting
+ *   - `sCaptchaProvider`             (str) — id of the active provider ('' = none)
+ *   - `sCaptchaConsentMode`          (str) — consent mode: '', 'gate', or 'cookie'
+ *   - `sCaptchaConsentCookieName`    (str) — cookie name to inspect in cookie mode
+ *   - `sCaptchaConsentCookieMarker`  (str) — marker value expected in that cookie
+ *   - `blCaptchaForm_<formId>`       (bool) — per-form on/off toggle
+ *   - `sCaptcha_<providerId>_<key>`  (str)  — per-provider credential / setting
  *
  * All values are persisted under the `module:captcha` config section so the
  * settings stay grouped together and can be cleared as a unit.
@@ -133,9 +135,19 @@ class CaptchaConfigController extends AdminDetailsController
         return $this->configuration()->isFormEnabled($formId);
     }
 
-    public function isConsentRequired(): bool
+    public function getConsentMode(): string
     {
-        return $this->configuration()->isConsentRequired();
+        return $this->configuration()->getConsentMode();
+    }
+
+    public function getConsentCookieName(): string
+    {
+        return $this->configuration()->getConsentCookieName();
+    }
+
+    public function getConsentCookieMarker(): string
+    {
+        return $this->configuration()->getConsentCookieMarker();
     }
 
     /**
@@ -152,9 +164,23 @@ class CaptchaConfigController extends AdminDetailsController
         $provider = (string) $request->getRequestEscapedParameter(CaptchaConfiguration::PROVIDER_KEY);
         $config->saveShopConfVar('str', CaptchaConfiguration::PROVIDER_KEY, $provider, $shopId, 'module:captcha');
         $config->saveShopConfVar(
-            'bool',
-            CaptchaConfiguration::CONSENT_KEY,
-            (bool) $request->getRequestEscapedParameter(CaptchaConfiguration::CONSENT_KEY) ? '1' : '',
+            'str',
+            CaptchaConfiguration::MODE_KEY,
+            (string) $request->getRequestEscapedParameter(CaptchaConfiguration::MODE_KEY),
+            $shopId,
+            'module:captcha'
+        );
+        $config->saveShopConfVar(
+            'str',
+            CaptchaConfiguration::COOKIE_NAME_KEY,
+            (string) $request->getRequestEscapedParameter(CaptchaConfiguration::COOKIE_NAME_KEY),
+            $shopId,
+            'module:captcha'
+        );
+        $config->saveShopConfVar(
+            'str',
+            CaptchaConfiguration::COOKIE_MARKER_KEY,
+            (string) $request->getRequestEscapedParameter(CaptchaConfiguration::COOKIE_MARKER_KEY),
             $shopId,
             'module:captcha'
         );

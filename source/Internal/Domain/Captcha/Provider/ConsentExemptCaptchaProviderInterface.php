@@ -20,26 +20,14 @@
 
 declare(strict_types=1);
 
-namespace OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration;
+namespace OxidEsales\EshopCommunity\Internal\Domain\Captcha\Provider;
 
-interface CaptchaConfigurationInterface
+/**
+ * Opt-in marker: a provider that makes no third-party calls and sets no
+ * tracking (e.g. a self-hosted proof-of-work CAPTCHA) implements this so the
+ * CaptchaService loads/verifies it WITHOUT the consent gate. Providers that do
+ * not implement it stay consent-gated.
+ */
+interface ConsentExemptCaptchaProviderInterface
 {
-    public const MODE_ALWAYS = 'always';
-    public const MODE_GATE = 'gate';
-    public const MODE_COOKIE = 'cookie';
-
-    public function getActiveProviderId(): string;
-
-    public function isFormEnabled(string $formId): bool;
-
-    public function isConsentRequired(): bool;
-
-    public function getConsentMode(): string;
-
-    public function getConsentCookieName(): string;
-
-    public function getConsentCookieMarker(): string;
-
-    /** @return mixed */
-    public function getProviderSetting(string $providerId, string $key, $default = null);
 }

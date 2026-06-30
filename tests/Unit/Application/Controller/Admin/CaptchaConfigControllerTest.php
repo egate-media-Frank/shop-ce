@@ -115,7 +115,7 @@ class CaptchaConfigControllerTest extends UnitTestCase
     {
         $this->requestParams = [
             CaptchaConfiguration::PROVIDER_KEY => self::FAKE_PROVIDER_ID,
-            CaptchaConfiguration::CONSENT_KEY => '1',
+            CaptchaConfiguration::MODE_KEY => 'gate',
             CaptchaConfiguration::FORM_PREFIX . 'contact' => '1',
             'providerField_fake_scoreThreshold' => '0.7',
         ];
@@ -126,9 +126,9 @@ class CaptchaConfigControllerTest extends UnitTestCase
 
         $byName = $this->indexBy($this->savedConfVars, 1);
 
-        // Provider id + consent flag.
+        // Provider id + consent mode.
         $this->assertSame(self::FAKE_PROVIDER_ID, $byName[CaptchaConfiguration::PROVIDER_KEY][2]);
-        $this->assertSame('1', $byName[CaptchaConfiguration::CONSENT_KEY][2]);
+        $this->assertSame('gate', $byName[CaptchaConfiguration::MODE_KEY][2]);
 
         // All seven per-form flags get written; the checked one is '1'.
         $this->assertSame('1', $byName[CaptchaConfiguration::FORM_PREFIX . 'contact'][2]);
@@ -139,6 +139,34 @@ class CaptchaConfigControllerTest extends UnitTestCase
         $this->assertSame('0.7', $byName[$threshold][2]);
 
         // Everything is written under the dedicated config section.
+        foreach ($this->savedConfVars as $call) {
+            $this->assertSame('module:captcha', $call[4]);
+        }
+    }
+
+    public function testSavePersistsConsentModeAndCookieFields(): void
+    {
+        $this->requestParams = [
+            CaptchaConfiguration::PROVIDER_KEY => '',
+            CaptchaConfiguration::MODE_KEY => 'cookie',
+            CaptchaConfiguration::COOKIE_NAME_KEY => 'CookieConsent',
+            CaptchaConfiguration::COOKIE_MARKER_KEY => 'marketing:true',
+        ];
+        $this->mockConfigAndRequest();
+
+        $controller = $this->makeController('');
+        $controller->save();
+
+        $byName = $this->indexBy($this->savedConfVars, 1);
+
+        $this->assertSame('cookie', $byName[CaptchaConfiguration::MODE_KEY][2]);
+        $this->assertSame('str', $byName[CaptchaConfiguration::MODE_KEY][0]);
+        $this->assertSame('CookieConsent', $byName[CaptchaConfiguration::COOKIE_NAME_KEY][2]);
+        $this->assertSame('marketing:true', $byName[CaptchaConfiguration::COOKIE_MARKER_KEY][2]);
+
+        // The legacy consent bool is no longer written.
+        $this->assertArrayNotHasKey(CaptchaConfiguration::CONSENT_KEY, $byName);
+
         foreach ($this->savedConfVars as $call) {
             $this->assertSame('module:captcha', $call[4]);
         }

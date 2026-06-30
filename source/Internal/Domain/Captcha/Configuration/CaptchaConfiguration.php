@@ -30,6 +30,9 @@ final class CaptchaConfiguration implements CaptchaConfigurationInterface
     public const CONSENT_KEY = 'blCaptchaRequireConsent';
     public const FORM_PREFIX = 'blCaptchaForm_';
     public const PROVIDER_SETTING_PREFIX = 'sCaptcha_';
+    public const MODE_KEY = 'sCaptchaConsentMode';
+    public const COOKIE_NAME_KEY = 'sCaptchaConsentCookieName';
+    public const COOKIE_MARKER_KEY = 'sCaptchaConsentCookieMarker';
 
     public function getActiveProviderId(): string
     {
@@ -45,6 +48,34 @@ final class CaptchaConfiguration implements CaptchaConfigurationInterface
     {
         $value = Registry::getConfig()->getConfigParam(self::CONSENT_KEY, true);
         return (bool) $value;
+    }
+
+    public function getConsentMode(): string
+    {
+        $mode = (string) Registry::getConfig()->getConfigParam(self::MODE_KEY, '');
+
+        if ($mode === '') {
+            // Backward-compat: derive from the legacy boolean so existing
+            // installs never silently flip to an insecure (always-on) state.
+            $legacy = Registry::getConfig()->getConfigParam(self::CONSENT_KEY, true);
+            return $legacy ? self::MODE_GATE : self::MODE_ALWAYS;
+        }
+
+        if (!in_array($mode, [self::MODE_ALWAYS, self::MODE_GATE, self::MODE_COOKIE], true)) {
+            return self::MODE_GATE;
+        }
+
+        return $mode;
+    }
+
+    public function getConsentCookieName(): string
+    {
+        return (string) Registry::getConfig()->getConfigParam(self::COOKIE_NAME_KEY, '');
+    }
+
+    public function getConsentCookieMarker(): string
+    {
+        return (string) Registry::getConfig()->getConfigParam(self::COOKIE_MARKER_KEY, '');
     }
 
     public function getProviderSetting(string $providerId, string $key, $default = null)

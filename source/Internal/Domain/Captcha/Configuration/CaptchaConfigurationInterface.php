@@ -24,11 +24,21 @@ namespace OxidEsales\EshopCommunity\Internal\Domain\Captcha\Configuration;
 
 interface CaptchaConfigurationInterface
 {
+    public const MODE_ALWAYS = 'always';
+    public const MODE_GATE = 'gate';
+    public const MODE_COOKIE = 'cookie';
+
     public function getActiveProviderId(): string;
 
     public function isFormEnabled(string $formId): bool;
 
     public function isConsentRequired(): bool;
+
+    public function getConsentMode(): string;
+
+    public function getConsentCookieName(): string;
+
+    public function getConsentCookieMarker(): string;
 
     /** @return mixed */
     public function getProviderSetting(string $providerId, string $key, $default = null);

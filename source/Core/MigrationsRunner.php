@@ -65,17 +65,17 @@ class MigrationsRunner
     public function process(IOInterface $io): void
     {
         if (!$this->configFileExists()) {
-            $this->writeSkip($io, 'No config file found — the shop is not set up yet.');
+            $this->writeSkip($io, 'no config file found, the shop is not set up yet');
             return;
         }
 
         if (!$this->canConnectToDatabase()) {
-            $this->writeSkip($io, 'The database is not reachable.');
+            $this->writeSkip($io, 'no database is reachable');
             return;
         }
 
         if (!$this->isShopLaunched()) {
-            $this->writeSkip($io, 'The shop is not launched yet.');
+            $this->writeSkip($io, 'the shop is not launched yet');
             return;
         }
 
@@ -205,19 +205,21 @@ class MigrationsRunner
     }
 
     /**
-     * Writes a prominent, unmissable warning that migrations were NOT executed,
-     * listing the manual commands to run on the target environment.
+     * Writes a calm single-line notice that migrations were skipped, naming the
+     * reason and the manual commands to run on the target environment.
+     *
+     * A skip is the *expected* state for many composer runs (no DB in CI, on a
+     * dev box, or in the build step of a build-once/deploy-many pipeline), so it
+     * is a quiet notice rather than a loud box — the box is reserved for genuine
+     * failures (see writeFailure()).
      */
     protected function writeSkip(IOInterface $io, string $reason): void
     {
-        $border = str_repeat('!', 70);
-        $io->writeError('<warning>' . $border . '</warning>');
-        $io->writeError('<warning>!! O3-Shop: DATABASE MIGRATIONS WERE *NOT* EXECUTED.</warning>');
-        $io->writeError('<warning>!! Reason: ' . $reason . '</warning>');
-        $io->writeError('<warning>!! Run these on the target environment after deployment:</warning>');
-        $io->writeError('<warning>!!   vendor/bin/oe-eshop-db_migrate migrations:migrate</warning>');
-        $io->writeError('<warning>!!   vendor/bin/oe-eshop-db_views_generate</warning>');
-        $io->writeError('<warning>' . $border . '</warning>');
+        $io->writeError(
+            '<comment>O3-Shop: skipping database migrations (' . $reason . '). '
+            . 'Run "vendor/bin/oe-eshop-db_migrate migrations:migrate" and '
+            . '"vendor/bin/oe-eshop-db_views_generate" on the target environment after deployment.</comment>'
+        );
     }
 
     /**

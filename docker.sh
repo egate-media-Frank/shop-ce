@@ -142,6 +142,7 @@ rebuild_containers() {
 
 run_tests() {
   GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
   RED='\033[0;31m'
   NC='\033[0m'
 
@@ -403,6 +404,10 @@ case "$1" in
     cs-fixer)
         run_php_cs_fixer || exit 127
         ;;
+    xdebug)
+        shift
+        toggle_xdebug "$@" || exit 127
+        ;;
     playwright)
         shift
         cd "$MY_DIR/tests/Acceptance/playwright" || exit 127
@@ -426,6 +431,7 @@ case "$1" in
         echo "  test-all     Run php-cs-fixer, then full test suite"
         echo "  test-all-coverage  Run php-cs-fixer, then full test suite with coverage report"
         echo "  cs-fixer     Run php-cs-fixer on the entire codebase"
+        echo "  xdebug       Toggle step debugging: $0 xdebug <on|off|status>"
         echo "  quarantine   Run slow/special @group quarantine tests only"
         echo "  playwright   Run the Playwright browser test suite (auto-installs deps on first run)"
         echo ""

@@ -268,6 +268,88 @@ class UtilitiesTest extends \OxidTestCase
     }
 
     /**
+     * A failed theme activation during setup must be logged as a warning
+     * (including the captured command output) instead of being swallowed.
+     */
+    public function testExecuteExternalThemeActivateCommandLogsWarningOnFailure()
+    {
+        $logger = $this->makeCaptureLogger();
+        \OxidEsales\Eshop\Core\Registry::set('logger', $logger);
+
+        $utilities = $this->getMockBuilder(Utilities::class)
+            ->onlyMethods(['runThemeActivateCommand'])
+            ->getMock();
+        $utilities->method('runThemeActivateCommand')
+            ->willReturn(['returnCode' => 1, 'output' => ['Theme - "ghost" not found.']]);
+
+        $returnCode = $utilities->executeExternalThemeActivateCommand();
+
+        $this->assertSame(1, $returnCode);
+        $this->assertCount(1, $logger->captured);
+        $this->assertSame('warning', $logger->captured[0]['level']);
+        $this->assertStringContainsString('Theme activation during setup failed', $logger->captured[0]['message']);
+        $this->assertSame(['Theme - "ghost" not found.'], $logger->captured[0]['context']['output']);
+    }
+
+    /**
+     * A successful theme activation must not emit any warning.
+     */
+    public function testExecuteExternalThemeActivateCommandDoesNotLogOnSuccess()
+    {
+        $logger = $this->makeCaptureLogger();
+        \OxidEsales\Eshop\Core\Registry::set('logger', $logger);
+
+        $utilities = $this->getMockBuilder(Utilities::class)
+            ->onlyMethods(['runThemeActivateCommand'])
+            ->getMock();
+        $utilities->method('runThemeActivateCommand')
+            ->willReturn(['returnCode' => 0, 'output' => ['Theme - "o3-theme" was activated.']]);
+
+        $returnCode = $utilities->executeExternalThemeActivateCommand();
+
+        $this->assertSame(0, $returnCode);
+        $this->assertCount(0, $logger->captured);
+    }
+
+    /**
+     * Logging must never abort setup: a logger that throws is swallowed and the
+     * activation exit code is still returned (graceful degradation).
+     */
+    public function testExecuteExternalThemeActivateCommandSwallowsLoggingErrors()
+    {
+        $throwingLogger = new class () extends \Psr\Log\AbstractLogger {
+            public function log($level, $message, array $context = []): void
+            {
+                throw new \RuntimeException('logger not bootstrapped');
+            }
+        };
+        \OxidEsales\Eshop\Core\Registry::set('logger', $throwingLogger);
+
+        $utilities = $this->getMockBuilder(Utilities::class)
+            ->onlyMethods(['runThemeActivateCommand'])
+            ->getMock();
+        $utilities->method('runThemeActivateCommand')
+            ->willReturn(['returnCode' => 1, 'output' => []]);
+
+        $this->assertSame(1, $utilities->executeExternalThemeActivateCommand());
+    }
+
+    /**
+     * Capturing PSR-3 logger that records every log call for assertions.
+     */
+    private function makeCaptureLogger(): object
+    {
+        return new class () extends \Psr\Log\AbstractLogger {
+            public array $captured = [];
+
+            public function log($level, $message, array $context = []): void
+            {
+                $this->captured[] = ['level' => $level, 'message' => $message, 'context' => $context];
+            }
+        };
+    }
+
+    /**
      * Test helper for cleaning up files.
      */
     private function removeTestFile()

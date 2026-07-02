@@ -147,7 +147,8 @@ VALUES ('8563fba1965a11df3.34244997', 1, '', 'blEnterNetPrice', 'bool', ''),
        ('32ddeaf2694e06b47b6ff74eafc69b65', 1, '', 'sParcelService', 'str',
         'http://www.dpd.de/cgi-bin/delistrack?typ=1&amp;lang=de&amp;pknr=##ID##'),
        ('1eada690d18be312ef5e49b8451440e7', 1, '', 'blShowTSCODMessage', 'bool', '1'),
-       ('0540d81331908df3b3cd950f3c27619f', 1, '', 'sCustomTheme', 'str', '');
+       ('0540d81331908df3b3cd950f3c27619f', 1, '', 'sCustomTheme', 'str', ''),
+       ('e19f12b05dd150339d39798ea831a7ed', 1, '', 'contactFormRequiredFields', 'arr', 'a:1:{i:0;s:5:"email";}');
 
 INSERT INTO `oxconfig` (`OXID`, `OXSHOPID`, `OXMODULE`, `OXVARNAME`, `OXVARTYPE`, `OXVARVALUE`)
 VALUES ('8563fba1baec57c19.08644217', 1, '', 'sThumbnailsize', 'str', '390*245'),
@@ -639,7 +640,9 @@ VALUES ('091fa9cc622351c270d5522741a21695', 'theme:o3-theme', 'sYouTubeUrl', 'fo
 -- (Comments must stay at column 0 — see #136.)
        ('516c5d0284c8901295508fe5f2724014', 'theme:o3-theme', 'sShowMode', 'mode', '', 1),
        ('dbee9d7d717f78f309386792e483a214', 'theme:o3-theme', 'sShowModePosition', 'mode', 'topleft|topright|bottomleft|bottomright', 1),
-       ('7cc228989a29ae584492ff08ab56cd92', 'theme:o3-theme', 'blShowFiltersSearch', 'display', '', 1),
+       ('7cc228989a29ae584492ff08ab56cd92', 'theme:o3-theme', 'blShowFiltersSearch',  'display', '', 1),
+       ('92286a9e6063258522af846de76ce2f0', 'theme:o3-theme', 'blShowSubcatTiles',    'display', '', 1),
+       ('d85b7c10b9c017de1a951834d5d05e81', 'theme:o3-theme', 'sEnable3xl',           'display', '', 1),
        ('1cc73e0e9c17e4d9ed1253196d463208', 'theme:o3-theme', 'bInputCompany', 'form', '', 1),
        ('6c692dddcddddd2c7ec3b33241833f1d', 'theme:o3-theme', 'bInputUstid', 'form', '', 1),
        ('dbfa6de4df36e0cd377f110a42a4eb19', 'theme:o3-theme', 'bInputState', 'form', '', 1),
